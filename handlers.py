@@ -181,7 +181,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Xabar yuborish (barcha holatlar uchun universal)
     await context.bot.send_message(
-        chat_id=user.id,
+        chat_id=update.effective_chat.id,
         text=welcome_text,
         parse_mode='HTML',
         reply_markup=get_main_keyboard(lang)
@@ -193,12 +193,17 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if cancel_session(user.id):
         lang = get_user_language(user.id)
-        await update.message.reply_text(
-            get_text('cancelled', lang=lang),
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=get_text('cancelled', lang=lang),
             reply_markup=get_main_keyboard(lang)
         )
     else:
-        await update.message.reply_text("⚠️ Bekor qilish uchun aktiv murojaat topilmadi.", reply_markup=get_main_keyboard(get_user_language(user.id)))
+        await context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text="⚠️ Bekor qilish uchun aktiv murojaat topilmadi.",
+            reply_markup=get_main_keyboard(get_user_language(user.id))
+        )
     
     context.user_data.clear()
     return ConversationHandler.END
