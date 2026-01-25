@@ -242,7 +242,13 @@ def main():
     application.add_handler(CallbackQueryHandler(faq_callback, pattern=r"^faq_"))
 
     # Pagination handler
-    application.add_handler(CallbackQueryHandler(my_cases_pagination_callback, pattern=r"^mycases_page_\d+$"))
+    application.add_handler(CallbackQueryHandler(my_cases_pagination_callback, pattern=r"^mycases_page_"))
+    
+    # Filter handler
+    application.add_handler(CallbackQueryHandler(my_cases_filter_callback, pattern=r"^mycases_filter_"))
+
+    # Operator accept handler
+    application.add_handler(CallbackQueryHandler(operator_accept_case, pattern=r"^op_accept_"))
 
     # Subscription check handler
     application.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription$"))

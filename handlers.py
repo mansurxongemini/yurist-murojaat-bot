@@ -463,26 +463,34 @@ async def confirm_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def list_my_cases(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """List user's cases"""
     user = update.effective_user
-    await show_user_cases_page(update, context, user.id, page=1)
+    await show_user_cases_page(update, context, user.id, page=1, status_filter='all')
 
-async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, page: int):
+async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, page: int, status_filter: str = 'all'):
     limit = 5
     offset = (page - 1) * limit
     
-    cases = get_user_cases(user_id, limit, offset)
-    total_count = count_user_cases(user_id)
+    cases = get_user_cases(user_id, limit, offset, status_filter)
+    total_count = count_user_cases(user_id, status_filter)
     total_pages = (total_count + limit - 1) // limit
+
+    # Filter buttons
+    filter_row = [
+        InlineKeyboardButton(f"{'✅ ' if status_filter == 'all' else ''}Barchasi", callback_data="mycases_filter_all"),
+        InlineKeyboardButton(f"{'✅ ' if status_filter == 'open' else ''}Ochiq", callback_data="mycases_filter_open"),
+        InlineKeyboardButton(f"{'✅ ' if status_filter == 'closed' else ''}Yopilgan", callback_data="mycases_filter_closed"),
+    ]
 
     if not cases:
         text = "📭 Sizda hozircha murojaatlar topilmadi."
+        keyboard = [filter_row]
         if update.callback_query:
-             await update.callback_query.edit_message_text(text)
+             await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         else:
-             await update.message.reply_text(text, reply_markup=MAIN_KEYBOARD)
+             await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
     
     text = f"📋 <b>Sizning murojaatlaringiz ({total_count} ta):</b>\n\n"
-    keyboard = []
+    keyboard = [filter_row]
     row = []
     
     for i, case in enumerate(cases):
@@ -505,13 +513,13 @@ async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYP
     # Pagination buttons
     nav_row = []
     if page > 1:
-        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"mycases_page_{page-1}"))
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"mycases_page_{page-1}_{status_filter}"))
     
     if total_pages > 1:
         nav_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
     
     if page < total_pages:
-        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"mycases_page_{page+1}"))
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"mycases_page_{page+1}_{status_filter}"))
         
     if nav_row:
         keyboard.append(nav_row)
@@ -524,8 +532,16 @@ async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYP
 async def my_cases_pagination_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    page = int(query.data.split("_")[2])
-    await show_user_cases_page(update, context, query.from_user.id, page)
+    parts = query.data.split("_")
+    page = int(parts[2])
+    status_filter = parts[3] if len(parts) > 3 else 'all'
+    await show_user_cases_page(update, context, query.from_user.id, page, status_filter)
+
+async def my_cases_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    status_filter = query.data.split("_")[2]
+    await show_user_cases_page(update, context, query.from_user.id, 1, status_filter)
 
 @check_ban
 @subscription_required
@@ -1053,6 +1069,23 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
             
         await query.answer(f"Biriktirildi: {op_name}")
 
+        # Operatorga xabar yuborish
+        op_telegram_id = get_operator_telegram_id(int(op_id))
+        if op_telegram_id:
+            try:
+                keyboard = [[InlineKeyboardButton("✅ Qabul qilish", callback_data=f"op_accept_{case['case_id']}")]]
+                await context.bot.send_message(
+                    chat_id=op_telegram_id,
+                    text=f"👨‍💼 <b>Yangi murojaat biriktirildi!</b>\n\n"
+                         f"🆔 Murojaat: #{case_number}\n"
+                         f"📌 Mavzu: {case.get('topic', 'Mavzusiz')}\n\n"
+                         f"Iltimos, qabul qiling.",
+                    parse_mode='HTML',
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            except Exception as e:
+                logger.error(f"Failed to notify operator {op_id}: {e}")
+
     elif data.startswith("back_case_"):
         await query.answer()
         case_number = int(data.split("_")[2])
@@ -1130,7 +1163,8 @@ async def add_operator_id_handler(update: Update, context: ContextTypes.DEFAULT_
     
     add_operator(name, gender, telegram_id)
     
-    await update.message.reply_text(f"✅ Operator qo'shildi: <b>{name}</b> (ID: {telegram_id or "Yo'q"})", parse_mode='HTML')
+    id_display = telegram_id if telegram_id else "Yo'q"
+    await update.message.reply_text(f"✅ Operator qo'shildi: <b>{name}</b> (ID: {id_display})", parse_mode='HTML')
     await admin_panel(update, context)
     return ConversationHandler.END
 
@@ -1759,3 +1793,17 @@ async def show_operator_stats(query):
             
     keyboard = [[InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")]]
     await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def operator_accept_case(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Operator murojaatni qabul qilishi"""
+    query = update.callback_query
+    await query.answer()
+    
+    case_id = int(query.data.split("_")[2])
+    
+    update_case_status(case_id, 'accepted')
+    
+    await query.edit_message_text(
+        query.message.text_html + "\n\n✅ <b>Siz murojaatni qabul qildingiz!</b>",
+        parse_mode='HTML'
+    )

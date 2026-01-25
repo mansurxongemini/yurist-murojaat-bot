@@ -376,22 +376,35 @@ def get_case_by_message_id(msg_id: int) -> Optional[Dict]:
         return dict(result) if result else None
 
 
-def get_user_cases(user_id: int, limit: int = 10, offset: int = 0) -> List[Dict]:
+def get_user_cases(user_id: int, limit: int = 10, offset: int = 0, status_filter: str = 'all') -> List[Dict]:
     """Foydalanuvchining murojaatlarini olish"""
+    query = "SELECT case_number, topic, created_at, status FROM cases WHERE user_id = %s"
+    params = [user_id]
+    
+    if status_filter == 'open':
+        query += " AND status IN ('pending', 'accepted')"
+    elif status_filter == 'closed':
+        query += " AND status IN ('closed', 'rejected')"
+        
+    query += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+    params.extend([limit, offset])
+    
     with get_db_cursor() as (cursor, conn):
-        cursor.execute("""
-            SELECT case_number, topic, created_at, status 
-            FROM cases 
-            WHERE user_id = %s 
-            ORDER BY created_at DESC 
-            LIMIT %s OFFSET %s
-        """, (user_id, limit, offset))
+        cursor.execute(query, tuple(params))
         return [dict(row) for row in cursor.fetchall()]
 
-def count_user_cases(user_id: int) -> int:
+def count_user_cases(user_id: int, status_filter: str = 'all') -> int:
     """Foydalanuvchining jami murojaatlari sonini olish"""
+    query = "SELECT COUNT(*) FROM cases WHERE user_id = %s"
+    params = [user_id]
+    
+    if status_filter == 'open':
+        query += " AND status IN ('pending', 'accepted')"
+    elif status_filter == 'closed':
+        query += " AND status IN ('closed', 'rejected')"
+        
     with get_db_cursor() as (cursor, conn):
-        cursor.execute("SELECT COUNT(*) FROM cases WHERE user_id = %s", (user_id,))
+        cursor.execute(query, tuple(params))
         return cursor.fetchone()[0]
 
 
