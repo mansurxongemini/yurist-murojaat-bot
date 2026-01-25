@@ -14,6 +14,7 @@ from utils import *
 import re
 import io
 import openpyxl
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -232,6 +233,16 @@ async def new_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start new case session"""
     user = update.effective_user
     
+    # Maintenance check (Texnik tanaffus tekshiruvi)
+    if get_setting("maintenance_mode") == "on" and not is_admin(user.id):
+        await update.message.reply_text(
+            "⚠️ <b>Texnik Tanaffus</b>\n\n"
+            "Botda hozirda profilaktika ishlari olib borilmoqda.\n"
+            "Iltimos, birozdan so'ng urinib ko'ring.",
+            parse_mode='HTML'
+        )
+        return
+
     # Clear any existing session
     context.user_data.clear()
     cancel_session(user.id)
@@ -779,6 +790,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📢 Majburiy Obuna", callback_data="admin_channel")],
         [InlineKeyboardButton("📝 Welcome Matni", callback_data="admin_welcome")],
         [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast_info")],
+        [InlineKeyboardButton("⚙️ Tizim Sozlamalari", callback_data="admin_system")],
         [InlineKeyboardButton("📊 Statistika (Excel)", callback_data="admin_stats_export")],
         [InlineKeyboardButton("❌ Yopish", callback_data="admin_close")]
     ]
@@ -884,6 +896,23 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
 
     elif data == "admin_broadcast_info":
         await query.answer("Broadcast uchun /broadcast buyrug'idan foydalaning.", show_alert=True)
+        return
+        
+    elif data == "admin_system":
+        await admin_system_menu(query)
+        return
+    
+    elif data == "admin_maint_toggle":
+        current = get_setting("maintenance_mode")
+        new_status = "off" if current == "on" else "on"
+        set_setting("maintenance_mode", new_status)
+        status_msg = "yoqildi" if new_status == "on" else "o'chirildi"
+        await query.answer(f"Texnik tanaffus {status_msg}!")
+        await admin_system_menu(query)
+        return
+
+    elif data == "admin_backup":
+        await send_backup(update, context)
         return
     
     elif data == "admin_operator_stats":
@@ -1725,5 +1754,48 @@ async def operator_accept_case(update: Update, context: ContextTypes.DEFAULT_TYP
     
     await query.edit_message_text(
         query.message.text_html + "\n\n✅ <b>Siz murojaatni qabul qildingiz!</b>",
+        parse_mode='HTML'
+    )
+
+async def admin_system_menu(query):
+    """Tizim sozlamalari menyusi"""
+    maintenance = get_setting("maintenance_mode")
+    status_text = "✅ YOQILGAN" if maintenance == "on" else "❌ O'CHIRILGAN"
+    
+    keyboard = [
+        [InlineKeyboardButton(f"🛑 Texnik Tanaffus: {status_text}", callback_data="admin_maint_toggle")],
+        [InlineKeyboardButton("💾 To'liq Backup (JSON)", callback_data="admin_backup")],
+        [InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")]
+    ]
+    
+    await query.edit_message_text(
+        "⚙️ <b>Tizim Sozlamalari</b>\n\n"
+        "• <b>Texnik Tanaffus:</b> Yoqilsa, oddiy foydalanuvchilar yangi murojaat yubora olmaydi (Adminlar mustasno).\n"
+        "• <b>Backup:</b> Barcha ma'lumotlarni JSON formatida yuklab olish.",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def send_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Backup faylini yuborish"""
+    query = update.callback_query
+    await query.answer("⏳ Backup tayyorlanmoqda...")
+    
+    data = get_full_backup_data()
+    
+    # JSON string yaratish
+    json_str = json.dumps(data, indent=4, ensure_ascii=False)
+    
+    # Fayl oqimini yaratish
+    file_stream = io.BytesIO(json_str.encode('utf-8'))
+    file_stream.seek(0)
+    
+    filename = f"backup_{datetime.now().strftime('%Y%m%d_%H%M')}.json"
+    
+    await context.bot.send_document(
+        chat_id=query.message.chat_id,
+        document=file_stream,
+        filename=filename,
+        caption="💾 <b>To'liq Ma'lumotlar Bazasi (Backup)</b>\nFormat: JSON",
         parse_mode='HTML'
     )

@@ -553,7 +553,7 @@ def add_operator(full_name: str, gender: str = 'male', telegram_id: int = None) 
 def get_active_operators() -> List[Dict]:
     """Aktiv operatorlarni olish"""
     with get_db_cursor() as (cursor, conn):
-        cursor.execute("SELECT id, full_name FROM operators WHERE is_active = 1 ORDER BY full_name")
+        cursor.execute("SELECT id, full_name FROM operators WHERE is_active = TRUE ORDER BY full_name")
         return [dict(row) for row in cursor.fetchall()]
 
 def delete_operator(operator_id: int):
@@ -726,3 +726,32 @@ def get_operator_statistics() -> List[Dict]:
             ORDER BY closed_cases DESC
         """)
         return [dict(row) for row in cursor.fetchall()]
+
+def get_full_backup_data() -> Dict[str, Any]:
+    """Backup uchun barcha ma'lumotlarni olish"""
+    data = {}
+    tables = ['users', 'cases', 'sessions', 'operators', 'faq', 'settings', 'blocked_users']
+    
+    with get_db_cursor() as (cursor, conn):
+        for table in tables:
+            try:
+                cursor.execute(f"SELECT * FROM {table}")
+                rows = [dict(row) for row in cursor.fetchall()]
+                
+                # Date serialization fix (datetime obyektlarini stringga o'tkazish)
+                clean_rows = []
+                for row in rows:
+                    clean_row = {}
+                    for k, v in row.items():
+                        if isinstance(v, (datetime, date)):
+                            clean_row[k] = str(v)
+                        else:
+                            clean_row[k] = v
+                    clean_rows.append(clean_row)
+                
+                data[table] = clean_rows
+            except Exception as e:
+                logger.error(f"Error backing up table {table}: {e}")
+                data[table] = []
+            
+    return data
