@@ -209,7 +209,6 @@ TRANSLATIONS = {
         'main_my_cases': "📋 Mening murojaatlarim",
         'main_stats': "📊 Mening statistikam",
         'main_templates': "📄 Ariza shablonlari",
-        'main_booking': "📅 Qabulga yozilish",
         'main_faq': "❓ FAQ",
         'main_info': "ℹ️ Bot haqida",
         'main_lang': "🌐 Tilni o'zgartirish",
@@ -218,7 +217,43 @@ TRANSLATIONS = {
         'welcome': "👋 Assalomu alaykum!\n\n<b>🤖 {bot_name} ga xush kelibsiz!</b>\n\n✅ Biz sizga yuridik maslahat beramiz.",
         'lang_select': "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:",
         'lang_set': "✅ Til o'zgartirildi: O'zbek tili",
-        'bot_info_text': "ℹ️ <b>Bot Haqida</b>\n\nBu bot orqali siz yuridik yordam olishingiz mumkin.\n\n1. 📩 Yangi murojaat tugmasini bosing.\n2. Mavzuni yozing.\n3. Muammoni batafsil tushuntiring.",
+        'bot_info_text': (
+            "ℹ️ <b>Bot Haqida - Barcha Imkoniyatlar</b>\n\n"
+            "🤖 <b>Bot nima qiladi?</b>\n"
+            "Bu bot orqali siz:\n"
+            "✅ <b>Murojaat yuborishingiz</b> – istalgan vaqt, istalgan joydan\n"
+            "✅ <b>Holatini kuzatishingiz</b> – har bir murojaatga alohida raqam beriladi\n"
+            "✅ <b>Statistika ko'rishingiz</b> – umumiy qilgan murojaatlar soni\n"
+            "✅ <b>Qidirish imkoniyati</b> – eski murojaatlarizni tez toping\n\n"
+            "🚀 <b>Qanday ishlatiladi? 4 oddiy qadam:</b>\n"
+            "1️⃣ \"📩 Yangi murojaat\" tugmasini bosing\n"
+            "2️⃣ Mavzu yozing – qisqacha, lekin tushunarli (masalan: \"Hisob-faktura to'lovi\")\n"
+            "3️⃣ Toʻliq matn yuboring – matn, rasm, video, fayl (max 50MB)\n"
+            "4️⃣ \"✅ Murojaatni yuborish\" tugmasini bosing – tayyor!\n\n"
+            "📊 <b>Statistika va Cheklovlar:</b>\n"
+            "• Kunlik limit: Har bir foydalanuvchi kuniga 5 ta murojaat yuborishi mumkin\n"
+            "• Javob vaqti: Administratorlar tomonidan 24-72 soat ichida ko'rib chiqiladi\n"
+            "• Raqamlash: Har bir murojaatga alohida raqam beriladi (masalan: #12345)\n\n"
+            "👁️ <b>Qo'shimcha imkoniyatlar:</b>\n"
+            "• <code>/status 12345</code> – Ma'lum murojaatning hozirgi holatini tekshiring\n"
+            "• <code>/search kalitso'z</code> – Murojaatlaringiz ichida qidirish\n"
+            "• 📋 \"Mening murojaatlarim\" – Oxirgi 10 ta murojaatingizni koʻrish\n"
+            "• 📊 \"Mening statistikam\" – Qabul qilingan, kutilayotgan, yopilgan murojaatlar soni\n\n"
+            "🔒 <b>Xavfsizlik va Maxfiylik:</b>\n"
+            "• Barcha ma'lumotlar shifrlangan holda saqlanadi\n"
+            "• Shaxsiy ma'lumotlar uchinchi shaxslarga bermaymiz\n"
+            "• Faqat ruxsat etilgan adminlar murojaatlarga javob beradi\n\n"
+            "• <b>Ish vaqti:</b> Dushanba-Juma, 09:00-18:00 (UTC+5)\n\n"
+            "💡 <b>Foydali maslahatlar:</b>\n"
+            "✍️ Murojaatingizni aniq va tushunarli yozing\n"
+            "📷 Zarur bo'lsa, rasmlar yoki screenshotlar qoʻshing\n"
+            "⏳ Javobni kutishda sabr qiling, adminlar tez orada javob beradi\n"
+            "🔄 Murojaat bir necha kun ichida hal boʻlishi mumkin (murakkabligi qarab)\n\n"
+            "🎯 <b>Endi boshlaysizmi?</b>\n"
+            "Quyidagi \"📩 Yangi murojaat\" tugmasini boshing va birinchi murojaatingizni yuboring!\n\n"
+            "📢 <b>Yangiliklar:</b>\n"
+            "Bot doimiy ravishda yangilanib turiladi. Yangi funksiyalar haqida bu yerda e'lon qilinadi."
+        ),
         'cancelled': "❌ Bekor qilindi.",
     },
     'ru': {
@@ -235,7 +270,43 @@ TRANSLATIONS = {
         'welcome': "👋 Здравствуйте!\n\n<b>🤖 Добро пожаловать в {bot_name}!</b>\n\n✅ Мы предоставим вам юридическую консультацию.",
         'lang_select': "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:",
         'lang_set': "✅ Язык изменен: Русский",
-        'bot_info_text': "ℹ️ <b>О боте</b>\n\nЧерез этот бот вы можете получить юридическую помощь.\n\n1. Нажмите 📩 Новое обращение.\n2. Напишите тему.\n3. Подробно опишите проблему.",
+        'bot_info_text': (
+            "ℹ️ <b>О боте - Все возможности</b>\n\n"
+            "🤖 <b>Что делает бот?</b>\n"
+            "С помощью этого бота вы можете:\n"
+            "✅ <b>Отправлять обращения</b> – в любое время, из любого места\n"
+            "✅ <b>Отслеживать статус</b> – каждому обращению присваивается уникальный номер\n"
+            "✅ <b>Смотреть статистику</b> – общее количество ваших обращений\n"
+            "✅ <b>Искать</b> – быстро находить старые обращения\n\n"
+            "🚀 <b>Как использовать? 4 простых шага:</b>\n"
+            "1️⃣ Нажмите кнопку \"📩 Новое обращение\"\n"
+            "2️⃣ Напишите тему – кратко, но понятно (например: \"Оплата счета-фактуры\")\n"
+            "3️⃣ Отправьте полный текст – текст, фото, видео, файл (макс. 50МБ)\n"
+            "4️⃣ Нажмите кнопку \"✅ Отправить обращение\" – готово!\n\n"
+            "📊 <b>Статистика и Ограничения:</b>\n"
+            "• <b>Дневной лимит:</b> Каждый пользователь может отправить 5 обращений в день\n"
+            "• <b>Время ответа:</b> Рассматривается администраторами в течение 24-72 часов\n"
+            "• <b>Нумерация:</b> Каждому обращению присваивается отдельный номер (например: #12345)\n\n"
+            "👁️ <b>Дополнительные возможности:</b>\n"
+            "• <code>/status 12345</code> – Проверить текущий статус определенного обращения\n"
+            "• <code>/search ключевое_слово</code> – Поиск среди ваших обращений\n"
+            "• 📋 \"Мои обращения\" – Просмотр последних 10 обращений\n"
+            "• 📊 \"Моя статистика\" – Количество принятых, ожидающих, закрытых обращений\n\n"
+            "🔒 <b>Безопасность и Конфиденциальность:</b>\n"
+            "• Все данные хранятся в зашифрованном виде\n"
+            "• Мы не передаем личные данные третьим лицам\n"
+            "• На обращения отвечают только авторизованные администраторы\n\n"
+            "• <b>Рабочее время:</b> Понедельник-Пятница, 09:00-18:00 (UTC+5)\n\n"
+            "💡 <b>Полезные советы:</b>\n"
+            "✍️ Пишите обращение четко и понятно\n"
+            "📷 При необходимости добавляйте фото или скриншоты\n"
+            "⏳ Будьте терпеливы в ожидании ответа, администраторы ответят в ближайшее время\n"
+            "🔄 Обращение может быть решено в течение нескольких дней (в зависимости от сложности)\n\n"
+            "🎯 <b>Начинаем?</b>\n"
+            "Нажмите кнопку \"📩 Новое обращение\" ниже и отправьте свое первое обращение!\n\n"
+            "📢 <b>Новости:</b>\n"
+            "Бот постоянно обновляется. О новых функциях будет объявлено здесь."
+        ),
         'cancelled': "❌ Отменено.",
     }
 }

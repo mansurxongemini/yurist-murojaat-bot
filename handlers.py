@@ -171,11 +171,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not welcome_text:
         welcome_text = get_text('welcome', lang=lang, bot_name=BOT_NAME)
     
-    await update.message.reply_text(
-        welcome_text,
-        parse_mode='HTML',
-        reply_markup=get_main_keyboard(lang)
-    )
+    if update.message:
+        await update.message.reply_text(
+            welcome_text,
+            parse_mode='HTML',
+            reply_markup=get_main_keyboard(lang)
+        )
+    elif update.callback_query:
+        # Callback orqali kelgan bo'lsa (masalan til tanlash yoki obuna tekshirish)
+        # Eski xabarni o'chiramiz va yangisini yuboramiz (ReplyKeyboard uchun)
+        try:
+            await update.callback_query.delete_message()
+        except Exception:
+            pass
+            
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=welcome_text,
+            parse_mode='HTML',
+            reply_markup=get_main_keyboard(lang)
+        )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel current operation"""
@@ -1452,11 +1467,9 @@ async def suggestion_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def check_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Obunani tekshirish tugmasi"""
     query = update.callback_query
-    await query.answer()
     
     if await check_membership(query.from_user.id, context):
-        await query.delete_message()
-        await query.message.reply_text("✅ Rahmat! Obuna tasdiqlandi.")
+        await query.answer("✅ Rahmat! Obuna tasdiqlandi.", show_alert=True)
         # Asl start funksiyasini chaqiramiz (qayta tekshirmaslik uchun)
         await start.__wrapped__(update, context)
     else:
