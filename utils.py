@@ -201,3 +201,58 @@ def check_ban(func):
             return
         return await func(update, context, *args, **kwargs)
     return wrapper
+
+# ==================== TRANSLATIONS ====================
+TRANSLATIONS = {
+    'uz': {
+        'main_new_case': "📩 Yangi murojaat",
+        'main_my_cases': "📋 Mening murojaatlarim",
+        'main_stats': "📊 Mening statistikam",
+        'main_templates': "📄 Ariza shablonlari",
+        'main_booking': "📅 Qabulga yozilish",
+        'main_faq': "❓ FAQ",
+        'main_info': "ℹ️ Bot haqida",
+        'main_lang': "🌐 Tilni o'zgartirish",
+        'main_offers': "💡 Takliflar",
+        'placeholder': "Tanlang...",
+        'welcome': "👋 Assalomu alaykum!\n\n<b>🤖 {bot_name} ga xush kelibsiz!</b>\n\n✅ Biz sizga yuridik maslahat beramiz.",
+        'lang_select': "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:",
+        'lang_set': "✅ Til o'zgartirildi: O'zbek tili",
+        'bot_info_text': "ℹ️ <b>Bot Haqida</b>\n\nBu bot orqali siz yuridik yordam olishingiz mumkin.\n\n1. 📩 Yangi murojaat tugmasini bosing.\n2. Mavzuni yozing.\n3. Muammoni batafsil tushuntiring.",
+        'cancelled': "❌ Bekor qilindi.",
+    },
+    'ru': {
+        'main_new_case': "📩 Новое обращение",
+        'main_my_cases': "📋 Мои обращения",
+        'main_stats': "📊 Моя статистика",
+        'main_templates': "📄 Шаблоны заявлений",
+        'main_booking': "📅 Запись на прием",
+        'main_faq': "❓ FAQ",
+        'main_info': "ℹ️ О боте",
+        'main_lang': "🌐 Изменить язык",
+        'main_offers': "💡 Предложения",
+        'placeholder': "Выберите...",
+        'welcome': "👋 Здравствуйте!\n\n<b>🤖 Добро пожаловать в {bot_name}!</b>\n\n✅ Мы предоставим вам юридическую консультацию.",
+        'lang_select': "🇺🇿 Iltimos, tilni tanlang:\n🇷🇺 Пожалуйста, выберите язык:",
+        'lang_set': "✅ Язык изменен: Русский",
+        'bot_info_text': "ℹ️ <b>О боте</b>\n\nЧерез этот бот вы можете получить юридическую помощь.\n\n1. Нажмите 📩 Новое обращение.\n2. Напишите тему.\n3. Подробно опишите проблему.",
+        'cancelled': "❌ Отменено.",
+    }
+}
+
+def get_text(key: str, user_id: int = None, lang: str = None, **kwargs) -> str:
+    """Tarjima matnini olish"""
+    from database import get_user_language
+    
+    if not lang and user_id:
+        lang = get_user_language(user_id)
+    
+    if not lang:
+        lang = 'uz'
+        
+    texts = TRANSLATIONS.get(lang, TRANSLATIONS['uz'])
+    text = texts.get(key, key)
+    
+    if kwargs:
+        return text.format(**kwargs)
+    return text

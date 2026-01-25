@@ -36,7 +36,7 @@ async def post_stop(application: Application):
 
 async def post_init(application: Application):
     """Post initialization"""
-    application.bot_data['main_keyboard'] = MAIN_KEYBOARD
+    # application.bot_data['main_keyboard'] = MAIN_KEYBOARD # Removed static keyboard
     
     scheduler = AsyncIOScheduler()
     
@@ -222,6 +222,20 @@ def main():
     )
     application.add_handler(admin_limit_conv)
 
+    # ==================== ADMIN TEMPLATE CONVERSATION ====================
+    admin_tpl_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(add_template_start, pattern="^add_tpl_start$")],
+        states={
+            ADMIN_ADD_TEMPLATE_FILE: [MessageHandler(filters.Document.ALL, add_template_file_handler)],
+            ADMIN_ADD_TEMPLATE_NAME: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_template_name_handler)]
+        },
+        fallbacks=[
+            CommandHandler("cancel", add_template_cancel),
+            MessageHandler(filters.COMMAND, cancel_on_command)
+        ],
+    )
+    application.add_handler(admin_tpl_conv)
+
     # ==================== STANDARD COMMANDS ====================
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("cancel", cancel))
@@ -229,10 +243,18 @@ def main():
 
     # ==================== MENU HANDLERS ====================
     # Note: "📩 Yangi murojaat" is handled by conv_handler above
-    application.add_handler(MessageHandler(filters.Text("📋 Mening murojaatlarim"), list_my_cases))
-    application.add_handler(MessageHandler(filters.Text("📊 Mening statistikam"), show_stats))
-    application.add_handler(MessageHandler(filters.Text("❓ FAQ"), show_faq))
-    application.add_handler(MessageHandler(filters.Text("ℹ️ Bot haqida"), bot_info))
+    # Multi-language text filters
+    def text_filter(key):
+        return filters.Regex(f"^({TRANSLATIONS['uz'][key]}|{TRANSLATIONS['ru'][key]})$")
+
+    application.add_handler(MessageHandler(text_filter('main_my_cases'), list_my_cases))
+    application.add_handler(MessageHandler(text_filter('main_stats'), show_stats))
+    application.add_handler(MessageHandler(text_filter('main_faq'), show_faq))
+    application.add_handler(MessageHandler(text_filter('main_info'), bot_info))
+    application.add_handler(MessageHandler(text_filter('main_templates'), show_templates))
+    application.add_handler(MessageHandler(text_filter('main_booking'), show_booking_slots))
+    application.add_handler(MessageHandler(text_filter('main_lang'), show_language_selection))
+    application.add_handler(MessageHandler(text_filter('main_offers'), suggestion_start))
 
     application.add_handler(MessageHandler(filters.Text("👁️ Ko'rish"), preview_case))
     application.add_handler(MessageHandler(filters.Text("✅ Murojaatni yuborish"), confirm_submit))
@@ -246,7 +268,8 @@ def main():
     application.add_handler(CommandHandler("admin", admin_panel))
     
     # Combined callback handler
-    application.add_handler(CallbackQueryHandler(admin_operations_callback, pattern=r"^(admin_|del_op_|assign_|set_op_|back_case_|noop|del_faq_|del_channel_|reset_welcome|unblock_)"))
+    application.add_handler(CallbackQueryHandler(admin_operations_callback, pattern=r"^(admin_|del_op_|assign_|set_op_|back_case_|noop|del_faq_|del_channel_|reset_welcome|unblock_|del_tpl_)"))
+    application.add_handler(CallbackQueryHandler(admin_operations_callback, pattern=r"^(admin_|del_op_|assign_|set_op_|back_case_|noop|del_faq_|del_channel_|reset_welcome|unblock_|del_tpl_|add_slots_)"))
     
     # Rating handler
     application.add_handler(CallbackQueryHandler(handle_rating, pattern=r"^rate_\d+_\d+$"))
@@ -265,6 +288,15 @@ def main():
 
     # Subscription check handler
     application.add_handler(CallbackQueryHandler(check_subscription_callback, pattern="^check_subscription$"))
+
+    # Template download handler
+    application.add_handler(CallbackQueryHandler(download_template_callback, pattern=r"^tpl_dl_"))
+
+    # Booking handler
+    application.add_handler(CallbackQueryHandler(book_slot_callback, pattern=r"^book_slot_"))
+
+    # Language handler
+    application.add_handler(CallbackQueryHandler(set_language_callback, pattern=r"^lang_"))
 
     # ==================== GENERAL MESSAGE HANDLER (OXIRIDA!) ====================
     application.add_handler(MessageHandler(

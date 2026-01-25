@@ -118,6 +118,16 @@ def init_db():
             )
         """)
 
+        # Users jadvaliga language ustunini qo'shish (migratsiya)
+        cursor.execute("""
+            DO $$ 
+            BEGIN 
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='language') THEN 
+                    ALTER TABLE users ADD COLUMN language VARCHAR(10) DEFAULT 'uz'; 
+                END IF; 
+            END $$;
+        """)
+
         # 9. Operators jadvali (Cases dan oldin yaratilishi kerak)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS operators (
@@ -204,6 +214,27 @@ def init_db():
                 reason TEXT,
                 blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 blocked_by BIGINT
+            )
+        """)
+
+        # 13. Templates jadvali (Ariza shablonlari)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS templates (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                file_id TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 14. Booking Slots (Qabul vaqtlari)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS booking_slots (
+                id SERIAL PRIMARY KEY,
+                slot_datetime TIMESTAMP NOT NULL UNIQUE,
+                is_booked BOOLEAN DEFAULT FALSE,
+                user_id BIGINT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
         
@@ -577,6 +608,88 @@ def get_operator_name(operator_id: int) -> Optional[str]:
         cursor.execute("SELECT full_name FROM operators WHERE id = %s", (operator_id,))
         res = cursor.fetchone()
         return res['full_name'] if res else None
+
+# ===================================================================
+# TEMPLATES (SHABLONLAR) FUNCTIONS
+# ===================================================================
+def get_templates() -> List[Dict]:
+    """Barcha shablonlarni olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT * FROM templates ORDER BY title")
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_template(template_id: int) -> Optional[Dict]:
+    """ID bo'yicha shablon olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT * FROM templates WHERE id = %s", (template_id,))
+        result = cursor.fetchone()
+        return dict(result) if result else None
+
+def add_template(title: str, file_id: str):
+    """Yangi shablon qo'shish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("INSERT INTO templates (title, file_id) VALUES (%s, %s)", (title, file_id))
+
+def delete_template(template_id: int):
+    """Shablonni o'chirish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("DELETE FROM templates WHERE id = %s", (template_id,))
+
+# ===================================================================
+# BOOKING (QABULGA YOZILISH) FUNCTIONS
+# ===================================================================
+def create_daily_slots(day_date: date):
+    """Bir kun uchun (09:00-17:00) slotlar yaratish"""
+    start_hour = 9
+    end_hour = 17
+    
+    with get_db_cursor() as (cursor, conn):
+        for hour in range(start_hour, end_hour + 1):
+            slot_time = datetime.combine(day_date, datetime.min.time()).replace(hour=hour)
+            try:
+                cursor.execute(
+                    "INSERT INTO booking_slots (slot_datetime) VALUES (%s) ON CONFLICT DO NOTHING",
+                    (slot_time,)
+                )
+            except Exception as e:
+                logger.error(f"Slot creation error: {e}")
+
+def get_available_slots() -> List[Dict]:
+    """Bo'sh vaqtlarni olish (kelajakdagi)"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("""
+            SELECT * FROM booking_slots 
+            WHERE is_booked = FALSE AND slot_datetime > NOW() 
+            ORDER BY slot_datetime ASC LIMIT 20
+        """)
+        return [dict(row) for row in cursor.fetchall()]
+
+def book_slot(slot_id: int, user_id: int) -> bool:
+    """Vaqtni band qilish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("""
+            UPDATE booking_slots 
+            SET is_booked = TRUE, user_id = %s 
+            WHERE id = %s AND is_booked = FALSE
+        """, (user_id, slot_id))
+        return cursor.rowcount > 0
+
+def delete_old_slots():
+    """Eski slotlarni tozalash"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("DELETE FROM booking_slots WHERE slot_datetime < NOW() - INTERVAL '1 day'")
+
+def get_user_language(user_id: int) -> Optional[str]:
+    """Foydalanuvchi tilini olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT language FROM users WHERE user_id = %s", (user_id,))
+        res = cursor.fetchone()
+        return res['language'] if res else None
+
+def set_user_language(user_id: int, lang: str):
+    """Foydalanuvchi tilini saqlash"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("INSERT INTO users (user_id, language) VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE SET language = %s", (user_id, lang, lang))
 
 def get_operator_telegram_id(operator_id: int) -> Optional[int]:
     """Operatorning Telegram ID sini olish"""

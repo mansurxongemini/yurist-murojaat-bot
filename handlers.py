@@ -1,6 +1,6 @@
 # handlers.py
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, User
 from telegram.ext import ContextTypes, ConversationHandler
@@ -24,6 +24,7 @@ BROADCAST_WAITING = 1
 SUGGESTION_WAITING = 2
 ADMIN_ADD_OP_NAME, ADMIN_ADD_OP_GENDER, ADMIN_ADD_OP_ID, RE_APPEAL_COLLECTING, ADMIN_SET_CHANNEL, ADMIN_SET_WELCOME, ADMIN_BAN_ID, ADMIN_SET_LIMIT = range(20, 28)
 FAQ_QUESTION, FAQ_ANSWER = range(30, 32)
+ADMIN_ADD_TEMPLATE_FILE, ADMIN_ADD_TEMPLATE_NAME = range(40, 42)
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/broadcast komandasi - 1-qadam"""
@@ -107,12 +108,16 @@ async def broadcast_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # Keyboard definitions
-MAIN_KEYBOARD = ReplyKeyboardMarkup(
-    [["📩 Yangi murojaat", "📋 Mening murojaatlarim"],
-     ["📊 Mening statistikam", "ℹ️ Bot haqida"],
-     ["❓ FAQ", "💡 Takliflar"]],
-    resize_keyboard=True, input_field_placeholder="Tanlang..."
-)
+def get_main_keyboard(lang: str = 'uz') -> ReplyKeyboardMarkup:
+    """Asosiy menyu klaviaturasi (Tilga moslashgan)"""
+    t = TRANSLATIONS.get(lang, TRANSLATIONS['uz'])
+    return ReplyKeyboardMarkup(
+        [[t['main_new_case'], t['main_my_cases']],
+         [t['main_booking'], t['main_templates']],
+         [t['main_faq'], t['main_info']],
+         [t['main_offers'], t['main_lang']]],
+        resize_keyboard=True, input_field_placeholder=t.get('placeholder', "Tanlang...")
+    )
 
 SESSION_KEYBOARD = ReplyKeyboardMarkup(
     [["✅ Murojaatni yuborish"],
@@ -151,7 +156,12 @@ TOPIC, COLLECTING = range(2)
 @subscription_required
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    logger.info(f"User {user.id} started bot")
+    
+    # Tilni tekshirish
+    lang = get_user_language(user.id)
+    if not lang:
+        await show_language_selection(update, context)
+        return
     
     context.user_data.clear()
     
@@ -159,23 +169,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     welcome_text = get_setting("welcome_message")
     
     if not welcome_text:
-        # Default matn
-        welcome_text = (
-            "👋 Assalomu alaykum!\n\n"
-            f"<b>🤖 {BOT_NAME} ga xush kelibsiz!</b>\n"
-            "❓ <b>Bunda siz:</b>\n"
-            f"✅ {TEAM_NAME} jamoasidan bepul yuridik maslahat olishingiz mumkin\n"
-            "✅ Biz sizga javob beramiz (24-72 soat)\n"
-            "❓ <b>Qanday yuboriladi?</b>\n"
-            "1️⃣ \"📩 Yangi murojaat\" → 2️⃣ Mavzu nomi → 3️⃣ xabar → 4️⃣ Yuborish\n\n"
-
-            "<b>🚀 Murojaat yuboring va bepul yuridik maslahat oling!</b>"
-        )
+        welcome_text = get_text('welcome', lang=lang, bot_name=BOT_NAME)
     
     await update.message.reply_text(
         welcome_text,
         parse_mode='HTML',
-        reply_markup=MAIN_KEYBOARD
+        reply_markup=get_main_keyboard(lang)
     )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -183,12 +182,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     
     if cancel_session(user.id):
+        lang = get_user_language(user.id)
         await update.message.reply_text(
-            "❌ Murojaat bekor qilindi.",
-            reply_markup=MAIN_KEYBOARD
+            get_text('cancelled', lang=lang),
+            reply_markup=get_main_keyboard(lang)
         )
     else:
-        await update.message.reply_text("⚠️ Bekor qilish uchun aktiv murojaat topilmadi.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("⚠️ Bekor qilish uchun aktiv murojaat topilmadi.", reply_markup=get_main_keyboard(get_user_language(user.id)))
     
     context.user_data.clear()
     return ConversationHandler.END
@@ -219,7 +219,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 <b>Holat:</b> {status_emoji} {status_text}\n"
             f"📅 <b>Yaratilgan:</b> {case['created_at'][:16]}",
             parse_mode='HTML',
-            reply_markup=MAIN_KEYBOARD
+            reply_markup=get_main_keyboard(get_user_language(user.id))
         )
     except ValueError:
         await update.message.reply_text("⚠️ Noto'g'ri raqam formati!")
@@ -301,7 +301,7 @@ async def collect_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not session_data:
         await message.reply_text(
             "⚠️ Aktiv murojaat topilmadi. \"📩 Yangi murojaat\" bosing.",
-            reply_markup=MAIN_KEYBOARD
+            reply_markup=get_main_keyboard(get_user_language(user.id))
         )
         return
     
@@ -353,7 +353,7 @@ async def preview_case(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     session_data = get_active_session(user.id)
     if not session_data:
-        await update.message.reply_text("⚠️ Aktiv murojaat topilmadi.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("⚠️ Aktiv murojaat topilmadi.", reply_markup=get_main_keyboard(get_user_language(user.id)))
         return
     
     messages = get_session_messages(session_data['session_id'])
@@ -386,7 +386,7 @@ async def confirm_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     session_data = get_active_session(user.id)
     if not session_data:
-        await update.message.reply_text("⚠️ Aktiv murojaat topilmadi.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("⚠️ Aktiv murojaat topilmadi.", reply_markup=get_main_keyboard(get_user_language(user.id)))
         return
     
     messages = get_session_messages(session_data['session_id'])
@@ -459,7 +459,7 @@ async def confirm_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🆔 Murojaat raqami: <b>#{case_number}</b>\n\n"
             f"24-72 soat ichida ko'rib chiqib javob beramiz.",
             parse_mode='HTML',
-            reply_markup=MAIN_KEYBOARD
+            reply_markup=get_main_keyboard(get_user_language(user.id))
         )
         
         logger.info(f"✅ Murojaat #{case_number} submitted by user {user.id}")
@@ -565,7 +565,7 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "📊 <b>Sizning statistikangiz:</b>\n\n📭 Hozircha murojaatlar yo'q\n📩 \"Yangi murojaat\" tugmasini bosing!",
             parse_mode='HTML',
-            reply_markup=MAIN_KEYBOARD
+            reply_markup=get_main_keyboard(get_user_language(user.id))
         )
         return
     
@@ -583,7 +583,7 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         text += "🕐 Oxirgi murojaat: —"
     
-    await update.message.reply_text(text, parse_mode='HTML', reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text(text, parse_mode='HTML', reply_markup=get_main_keyboard(get_user_language(user.id)))
 
 
 # handlers.py faylida bot_info funksiyasini almashtiring:
@@ -594,52 +594,14 @@ async def bot_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Bot haqida ma'lumotni chiqarish"""
     user = update.effective_user
     logger.info(f"User {user.id} requested bot info")
+    lang = get_user_language(user.id)
     
-    context.user_data.clear()
-    
-    info_text = (
-        "ℹ️ <b>Bot Haqida - Barcha Imkoniyatlar</b>\n\n"
-        "🤖 <b>Bot nima qiladi?</b>\n"
-        "Bu bot orqali siz:\n"
-        "✅ <b>Murojaat yuborishingiz</b> – istalgan vaqt, istalgan joydan\n"
-        "✅ <b>Holatini kuzatishingiz</b> – har bir murojaatga alohida raqam beriladi\n"
-        "✅ <b>Statistika ko'rishingiz</b> – umumiy qilgan murojaatlar soni\n"
-        "✅ <b>Qidirish imkoniyati</b> – eski murojaatlarizni tez toping\n\n"
-        "🚀 <b>Qanday ishlatiladi? 4 oddiy qadam:</b>\n"
-        "1️⃣ <b>\"📩 Yangi murojaat\"</b> tugmasini bosing\n"
-        "2️⃣ <b>Mavzu yozing</b> – qisqacha, lekin tushunarli (masalan: \"Hisob-faktura to'lovi\")\n"
-        "3️⃣ <b>Toʻliq matn yuboring</b> – matn, rasm, video, fayl (max 50MB)\n"
-        "4️⃣ <b>\"✅ Murojaatni yuborish\"</b> tugmasini bosing – tayyor!\n\n"
-        "📊 <b>Statistika va Cheklovlar:</b>\n"
-        "• <b>Kunlik limit:</b> Har bir foydalanuvchi kuniga 5 ta murojaat yuborishi mumkin\n"
-        "• <b>Javob vaqti:</b> Administratorlar tomonidan 24-72 soat ichida ko'rib chiqiladi\n"
-        "• <b>Raqamlash:</b> Har bir murojaatga alohida raqam beriladi (masalan: #12345)\n\n"
-        "👁️ <b>Qo'shimcha imkoniyatlar:</b>\n"
-        "• <code>/status 12345</code> – Ma'lum murojaatning hozirgi holatini tekshiring\n"
-        "• <code>/search kalitso'z</code> – Murojaatlaringiz ichida qidirish\n"
-        "• 📋 <b>\"Mening murojaatlarim\"</b> – Oxirgi 10 ta murojaatingizni koʻrish\n"
-        "• 📊 <b>\"Mening statistikam\"</b> – Qabul qilingan, kutilayotgan, yopilgan murojaatlar soni\n\n"
-        "🔒 <b>Xavfsizlik va Maxfiylik:</b>\n"
-        "• Barcha ma'lumotlar shifrlangan holda saqlanadi\n"
-        "• Shaxsiy ma'lumotlar uchinchi shaxslarga bermaymiz\n"
-        "• Faqat ruxsat etilgan adminlar murojaatlarga javob beradi\n\n"
-
-        "• <b>Ish vaqti:</b> Dushanba-Juma, 09:00-18:00 (UTC+5)\n\n"
-        "💡 <b>Foydali maslahatlar:</b>\n"
-        "✍️ Murojaatingizni aniq va tushunarli yozing\n"
-        "📷 Zarur bo'lsa, rasmlar yoki screenshotlar qoʻshing\n"
-        "⏳ Javobni kutishda sabr qiling, adminlar tez orada javob beradi\n"
-        "🔄 Murojaat bir necha kun ichida hal boʻlishi mumkin (murakkabligi qarab)\n\n"
-        "🎯 <b>Endi boshlaysizmi?</b>\n"
-        "Quyidagi <b>\"📩 Yangi murojaat\"</b> tugmasini boshing va birinchi murojaatingizni yuboring!\n\n"
-        "📢 <b>Yangiliklar:</b>\n"
-        "Bot doimiy ravishda yangilanib turiladi. Yangi funksiyalar haqida bu yerda e'lon qilinadi."
-    )
+    info_text = get_text('bot_info_text', lang=lang)
     
     await update.message.reply_text(
         info_text,
         parse_mode='HTML',
-        reply_markup=MAIN_KEYBOARD
+        reply_markup=get_main_keyboard(lang)
     )
 
 
@@ -697,7 +659,7 @@ async def admin_approve_reject(update: Update, context: ContextTypes.DEFAULT_TYP
                 f'🆔 Murojaat raqami: #{case_number}\n\n'
                 f'72 soat ichida javob beramiz.',
                 parse_mode='HTML',
-                reply_markup=MAIN_KEYBOARD
+                reply_markup=get_main_keyboard(get_user_language(user_id))
             )
         except Exception as e:
             logger.error(f"Failed to notify user: {e}")
@@ -726,7 +688,7 @@ async def admin_approve_reject(update: Update, context: ContextTypes.DEFAULT_TYP
                 user_id,
                 "❌ Sizning murojaatingiz ko'rib chiqish uchun yetarli emas.\n"
                 "Iltimos, qayta urinib ko'ring yoki ma'lumotni to'ldiring.",
-                reply_markup=MAIN_KEYBOARD
+                reply_markup=get_main_keyboard(get_user_language(user_id))
             )
         except Exception as e:
             logger.error(f"Failed to notify user: {e}")
@@ -759,7 +721,7 @@ async def search_cases(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not results:
         await update.message.reply_text(
             f"❌ '{query}' boʻyicha hech narsa topilmadi.",
-            reply_markup=MAIN_KEYBOARD
+            reply_markup=get_main_keyboard(get_user_language(user.id))
         )
         return
     
@@ -773,7 +735,7 @@ async def search_cases(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         text += f"{emoji} <b>{topic}</b>\n🆔: #{case['case_number']} | {date}\n📊 {status}\n\n"
     
-    await update.message.reply_text(text, parse_mode='HTML', reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text(text, parse_mode='HTML', reply_markup=get_main_keyboard(get_user_language(user.id)))
 
 # ===================================================================
 # ADMIN PANEL & OPERATORS
@@ -787,7 +749,9 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("👨‍💼 Operator Statistikasi", callback_data="admin_op_stats_view")],
         [InlineKeyboardButton(" Bloklanganlar", callback_data="admin_blocked")],
         [InlineKeyboardButton("❓ FAQ Sozlamalari", callback_data="admin_faq")],
-        [InlineKeyboardButton("📢 Majburiy Obuna", callback_data="admin_channel")],
+        [InlineKeyboardButton("📄 Shablonlar", callback_data="admin_templates")],
+        [InlineKeyboardButton("📅 Qabul Vaqtlari", callback_data="admin_booking")],
+        [InlineKeyboardButton("� Majburiy Obuna", callback_data="admin_channel")],
         [InlineKeyboardButton("📝 Welcome Matni", callback_data="admin_welcome")],
         [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast_info")],
         [InlineKeyboardButton("⚙️ Tizim Sozlamalari", callback_data="admin_system")],
@@ -831,6 +795,8 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
             [InlineKeyboardButton("👨‍💼 Operator Statistikasi", callback_data="admin_op_stats_view")],
             [InlineKeyboardButton("� Bloklanganlar", callback_data="admin_blocked")],
             [InlineKeyboardButton("❓ FAQ Sozlamalari", callback_data="admin_faq")],
+            [InlineKeyboardButton("📄 Shablonlar", callback_data="admin_templates")],
+            [InlineKeyboardButton("📅 Qabul Vaqtlari", callback_data="admin_booking")],
             [InlineKeyboardButton("📢 Majburiy Obuna", callback_data="admin_channel")],
             [InlineKeyboardButton("📝 Welcome Matni", callback_data="admin_welcome")],
             [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast_info")],
@@ -858,6 +824,18 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
 
     elif data == "admin_faq":
         await admin_faq_menu(query)
+        return
+        
+    elif data == "admin_templates":
+        await admin_templates_menu(query)
+        return
+
+    elif data == "admin_booking":
+        await admin_booking_menu(query)
+        return
+        
+    elif data == "add_slots_tomorrow":
+        await admin_add_slots_callback(update, context)
         return
 
     elif data == "admin_channel":
@@ -892,6 +870,13 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
         delete_faq(faq_id)
         await query.answer("✅ O'chirildi")
         await admin_faq_menu(query)
+        return
+        
+    elif data.startswith("del_tpl_"):
+        tpl_id = int(data.split("_")[2])
+        delete_template(tpl_id)
+        await query.answer("✅ Shablon o'chirildi")
+        await admin_templates_menu(query)
         return
 
     elif data == "admin_broadcast_info":
@@ -1323,7 +1308,7 @@ async def cancel_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif command.startswith("/admin"):
         await admin_panel(update, context)
     else:
-        await update.message.reply_text("⚠️ Avvalgi jarayon to'xtatildi.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("⚠️ Avvalgi jarayon to'xtatildi.", reply_markup=get_main_keyboard(get_user_language(update.effective_user.id)))
         context.user_data.clear()
         
     return ConversationHandler.END
@@ -1358,13 +1343,13 @@ async def handle_re_appeal_message(update: Update, context: ContextTypes.DEFAULT
     case_number = context.user_data.get('re_appeal_case_number')
     
     if not case_number:
-        await update.message.reply_text("⚠️ Xatolik: Murojaat raqami yo'qolgan.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("⚠️ Xatolik: Murojaat raqami yo'qolgan.", reply_markup=get_main_keyboard(get_user_language(user.id)))
         return ConversationHandler.END
 
     # Case ma'lumotlarini olish
     case = get_case_by_number_and_user(case_number, user.id)
     if not case:
-        await update.message.reply_text("⚠️ Murojaat topilmadi.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("⚠️ Murojaat topilmadi.", reply_markup=get_main_keyboard(get_user_language(user.id)))
         return ConversationHandler.END
 
     # Operator ma'lumotini olish
@@ -1405,13 +1390,13 @@ async def handle_re_appeal_message(update: Update, context: ContextTypes.DEFAULT
             # Statusni yangilash (ixtiyoriy, lekin foydali)
             update_case_status(case['case_id'], 'pending')
             
-            await update.message.reply_text("✅ Xabaringiz operatorga yuborildi!", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text("✅ Xabaringiz operatorga yuborildi!", reply_markup=get_main_keyboard(get_user_language(user.id)))
         else:
-            await update.message.reply_text("⚠️ Xabarni yuborishda xatolik.", reply_markup=MAIN_KEYBOARD)
+            await update.message.reply_text("⚠️ Xabarni yuborishda xatolik.", reply_markup=get_main_keyboard(get_user_language(user.id)))
             
     except Exception as e:
         logger.error(f"Re-appeal error: {e}")
-        await update.message.reply_text("⚠️ Tizim xatoligi.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("⚠️ Tizim xatoligi.", reply_markup=get_main_keyboard(get_user_language(user.id)))
 
     context.user_data.clear()
     return ConversationHandler.END
@@ -1453,14 +1438,14 @@ async def suggestion_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(
         "✅ Taklifingiz qabul qilindi va adminga yuborildi!\nE'tiboringiz uchun rahmat.", 
-        reply_markup=MAIN_KEYBOARD
+        reply_markup=get_main_keyboard(get_user_language(user.id))
     )
     return ConversationHandler.END
 
 
 async def suggestion_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Taklifni bekor qilish"""
-    await update.message.reply_text("❌ Bekor qilindi.", reply_markup=MAIN_KEYBOARD)
+    await update.message.reply_text("❌ Bekor qilindi.", reply_markup=get_main_keyboard(get_user_language(update.effective_user.id)))
     return ConversationHandler.END
 
 
@@ -1485,7 +1470,7 @@ async def show_faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """FAQ bo'limi - Foydalanuvchi uchun"""
     faqs = get_faqs()
     if not faqs:
-        await update.message.reply_text("📭 Hozircha savollar yo'q.", reply_markup=MAIN_KEYBOARD)
+        await update.message.reply_text("📭 Hozircha savollar yo'q.", reply_markup=get_main_keyboard(get_user_language(update.effective_user.id)))
         return
     
     keyboard = []
@@ -1835,3 +1820,229 @@ async def set_limit_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Kunlik limit o'zgartirildi: {limit} ta")
     await admin_panel(update, context)
     return ConversationHandler.END
+
+# ==================== TEMPLATES HANDLERS ====================
+@check_ban
+@subscription_required
+async def show_templates(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchiga shablonlarni ko'rsatish"""
+    templates = get_templates()
+    if not templates:
+        await update.message.reply_text("📭 Hozircha shablonlar yo'q.", reply_markup=get_main_keyboard(get_user_language(update.effective_user.id)))
+        return
+    
+    keyboard = []
+    for t in templates:
+        keyboard.append([InlineKeyboardButton(f"📄 {t['title']}", callback_data=f"tpl_dl_{t['id']}")])
+    
+    await update.message.reply_text(
+        "📄 <b>Ariza shablonlari:</b>\n\nYuklab olish uchun kerakli shablonni tanlang:",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def download_template_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Shablonni yuklab berish"""
+    query = update.callback_query
+    await query.answer()
+    
+    try:
+        tpl_id = int(query.data.split("_")[2])
+        template = get_template(tpl_id)
+        
+        if template:
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=template['file_id'],
+                caption=f"📄 <b>{template['title']}</b>",
+                parse_mode='HTML'
+            )
+        else:
+            await query.answer("Shablon topilmadi!", show_alert=True)
+    except Exception as e:
+        logger.error(f"Template download error: {e}")
+        await query.answer("Xatolik yuz berdi", show_alert=True)
+
+async def admin_templates_menu(query):
+    """Admin shablonlar menyusi"""
+    templates = get_templates()
+    keyboard = []
+    
+    for t in templates:
+        keyboard.append([
+            InlineKeyboardButton(f"📄 {t['title']}", callback_data="noop"),
+            InlineKeyboardButton("🗑", callback_data=f"del_tpl_{t['id']}")
+        ])
+    
+    keyboard.append([InlineKeyboardButton("➕ Shablon qo'shish", callback_data="add_tpl_start")])
+    keyboard.append([InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")])
+    
+    await query.edit_message_text(
+        "📄 <b>Shablonlar boshqaruvi:</b>",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def add_template_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "📄 <b>Yangi shablon faylini yuboring (PDF/DOC):</b>\n\n"
+        "Bekor qilish uchun /cancel ni bosing.",
+        parse_mode='HTML'
+    )
+    return ADMIN_ADD_TEMPLATE_FILE
+
+async def add_template_file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    doc = update.message.document
+    if not doc:
+        await update.message.reply_text("⚠️ Iltimos, fayl yuboring!")
+        return ADMIN_ADD_TEMPLATE_FILE
+        
+    context.user_data['new_tpl_file_id'] = doc.file_id
+    context.user_data['new_tpl_name'] = doc.file_name
+    
+    await update.message.reply_text(
+        f"✅ Fayl qabul qilindi.\n\n"
+        f"✍️ <b>Shablon nomini kiriting:</b>\n"
+        f"(Hozirgi fayl nomi: {doc.file_name})",
+        parse_mode='HTML'
+    )
+    return ADMIN_ADD_TEMPLATE_NAME
+
+async def add_template_name_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    title = update.message.text
+    file_id = context.user_data['new_tpl_file_id']
+    
+    add_template(title, file_id)
+    
+    await update.message.reply_text(f"✅ Shablon qo'shildi: <b>{title}</b>", parse_mode='HTML')
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+async def add_template_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Bekor qilindi.")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+# ==================== LANGUAGE HANDLERS ====================
+async def show_language_selection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Til tanlash menyusini ko'rsatish"""
+    keyboard = [
+        [InlineKeyboardButton("🇺🇿 O'zbekcha", callback_data="lang_uz"),
+         InlineKeyboardButton("🇷🇺 Русский", callback_data="lang_ru")]
+    ]
+    
+    text = get_text('lang_select', lang='uz') # Default to uz for selection prompt
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def set_language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Tilni saqlash"""
+    query = update.callback_query
+    await query.answer()
+    
+    lang = query.data.split("_")[1]
+    user = query.from_user
+    
+    set_user_language(user.id, lang)
+    
+    # Yangi tilda xabar
+    await query.delete_message()
+    await context.bot.send_message(
+        chat_id=user.id,
+        text=get_text('lang_set', lang=lang),
+        reply_markup=get_main_keyboard(lang)
+    )
+    
+    # Start ni qayta chaqirish (welcome message uchun)
+    await start.__wrapped__(update, context)
+
+# ==================== BOOKING HANDLERS ====================
+@check_ban
+@subscription_required
+async def show_booking_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchiga bo'sh vaqtlarni ko'rsatish"""
+    slots = get_available_slots()
+    
+    if not slots:
+        await update.message.reply_text(
+            "📅 <b>Qabulga yozilish:</b>\n\n"
+            "Hozircha bo'sh vaqtlar mavjud emas. Keyinroq tekshirib ko'ring.",
+            parse_mode='HTML', reply_markup=get_main_keyboard(get_user_language(update.effective_user.id))
+        )
+        return
+
+    keyboard = []
+    row = []
+    for slot in slots:
+        # Format: 27-Okt 14:00
+        dt = slot['slot_datetime']
+        btn_text = dt.strftime("%d-%b %H:%M")
+        row.append(InlineKeyboardButton(f"🕒 {btn_text}", callback_data=f"book_slot_{slot['id']}"))
+        
+        if len(row) == 2:
+            keyboard.append(row)
+            row = []
+    if row: keyboard.append(row)
+    
+    await update.message.reply_text(
+        "📅 <b>Qabulga yozilish:</b>\n\n"
+        "O'zingizga qulay vaqtni tanlang:",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def book_slot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Vaqtni band qilish"""
+    query = update.callback_query
+    user = update.effective_user
+    try:
+        slot_id = int(query.data.split("_")[2])
+    except (IndexError, ValueError):
+        await query.answer("Xatolik!", show_alert=True)
+        return
+    
+    if book_slot(slot_id, user.id):
+        await query.answer("✅ Muvaffaqiyatli band qilindi!", show_alert=True)
+        await query.edit_message_text(
+            f"✅ <b>Qabulga yozildingiz!</b>\n\n"
+            f"👤 Ism: {user.full_name}\n"
+            f"🕒 Vaqt muvaffaqiyatli band qilindi.\n\n"
+            f"Iltimos, belgilangan vaqtda aloqada bo'ling yoki ofisga keling.",
+            parse_mode='HTML'
+        )
+    else:
+        await query.answer("⚠️ Bu vaqt allaqachon band qilingan!", show_alert=True)
+        await show_booking_slots(update, context)
+
+async def admin_booking_menu(query):
+    """Admin booking menyusi"""
+    keyboard = [
+        [InlineKeyboardButton("➕ Ertangi kun uchun vaqt ochish", callback_data="add_slots_tomorrow")],
+        [InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")]
+    ]
+    
+    slots = get_available_slots()
+    count = len(slots)
+    
+    await query.edit_message_text(
+        f"📅 <b>Qabul Vaqtlari Boshqaruvi</b>\n\n"
+        f"Hozirda aktiv bo'sh vaqtlar: <b>{count}</b> ta\n\n"
+        f"Vaqt qo'shish tugmasi ertangi kun uchun 09:00 dan 17:00 gacha soatlik vaqtlarni avtomatik yaratadi.",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def admin_add_slots_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ertangi kun uchun slot yaratish"""
+    query = update.callback_query
+    
+    tomorrow = datetime.now().date() + timedelta(days=1)
+    create_daily_slots(tomorrow)
+    
+    await query.answer(f"✅ {tomorrow} sanasi uchun vaqtlar yaratildi!")
+    await admin_booking_menu(query)
