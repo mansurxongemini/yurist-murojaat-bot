@@ -2,7 +2,9 @@
 import logging
 import os
 from typing import Tuple, Optional
-from telegram import User
+from telegram import User, Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import ContextTypes
+from telegram.error import BadRequest
 from config import ALLOWED_FILE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
@@ -123,5 +125,74 @@ def rate_limit(func):
             )
             return
         
+        return await func(update, context, *args, **kwargs)
+    return wrapper
+
+
+async def check_membership(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    """Foydalanuvchi kanalga obuna bo'lganligini tekshirish"""
+    from database import get_setting
+    channel_id = get_setting("required_channel_id")
+    
+    if not channel_id:
+        return True
+        
+    try:
+        member = await context.bot.get_chat_member(chat_id=channel_id, user_id=user_id)
+        return member.status in ['creator', 'administrator', 'member']
+    except BadRequest:
+        return True
+    except Exception as e:
+        logger.error(f"Membership check error: {e}")
+        return True
+
+
+def subscription_required(func):
+    """Decorator: Kanalga obuna bo'lishni talab qilish"""
+    from functools import wraps
+    from database import get_setting
+    
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        user = update.effective_user
+        if not user:
+            return await func(update, context, *args, **kwargs)
+            
+        if is_admin(user.id):
+            return await func(update, context, *args, **kwargs)
+            
+        if await check_membership(user.id, context):
+            return await func(update, context, *args, **kwargs)
+            
+        channel_id = get_setting("required_channel_id")
+        keyboard = [
+            [InlineKeyboardButton("✅ Obunani tekshirish", callback_data="check_subscription")]
+        ]
+        
+        msg = f"⚠️ <b>Botdan foydalanish uchun kanalimizga obuna bo'ling!</b>\n\nKanal: {channel_id}"
+        
+        if update.callback_query:
+            await update.callback_query.message.reply_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        else:
+            await update.message.reply_text(msg, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        return
+        
+    return wrapper
+
+
+def check_ban(func):
+    """Decorator: Check if user is banned"""
+    from functools import wraps
+    from database import is_user_blocked
+    
+    @wraps(func)
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        user = update.effective_user
+        if user and is_user_blocked(user.id):
+            if update.callback_query:
+                await update.callback_query.answer("🚫 Siz botdan bloklangansiz!", show_alert=True)
+            elif update.message:
+                await update.message.reply_text("🚫 <b>Siz botdan bloklangansiz!</b>", parse_mode='HTML')
+            return
         return await func(update, context, *args, **kwargs)
     return wrapper

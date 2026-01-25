@@ -721,125 +721,6 @@ async def admin_approve_reject(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.error(f"Failed to notify user: {e}")
 
 
-async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Forward admin reply to user"""
-    message = update.message
-    
-    # Check if in group and is reply
-    if message.chat.id != GROUP_CHAT_ID or not message.reply_to_message:
-        return
-    
-    # Check admin
-    if not is_admin(message.from_user.id):
-        return
-    
-    # Get case from reply
-    case_data = get_case_by_message_id(message.reply_to_message.message_id)
-    if not case_data:
-        # Try original message if reply is to a media message
-        try:
-            if message.reply_to_message.reply_to_message:
-                case_data = get_case_by_message_id(message.reply_to_message.reply_to_message.message_id)
-        except Exception as e:
-            logger.error(f"Failed to check original message: {e}")
-            return
-    
-    if not case_data:
-        return
-    
-    case_id = case_data['case_id']
-    user_id = case_data['user_id']
-    topic = case_data['topic']
-    
-    # Prepare header
-    topic_part = f" | {topic}" if topic else ""
-    header = f"📋 <b>Murojaat #{case_data['case_number']}</b>{topic_part}\n\n<b>Admin javobi:</b>\n\n"
-    
-    try:
-        # Send appropriate message type
-        if message.text:
-            await context.bot.send_message(user_id, header + message.text, parse_mode='HTML')
-        elif message.photo:
-            await context.bot.send_photo(
-                user_id, photo=message.photo[-1].file_id,
-                caption=header + (message.caption or ""),
-                parse_mode='HTML'
-            )
-        elif message.video:
-            await context.bot.send_video(
-                user_id, video=message.video.file_id,
-                caption=header + (message.caption or ""),
-                parse_mode='HTML'
-            )
-        elif message.document:
-            await context.bot.send_document(
-                user_id, document=message.document.file_id,
-                caption=header + (message.caption or ""),
-                parse_mode='HTML'
-            )
-        elif message.voice:
-            await context.bot.send_voice(
-                user_id, voice=message.voice.file_id,
-                caption=header + (message.caption or ""),
-                parse_mode='HTML'
-            )
-        else:
-            await message.reply_text("⚠️ Bu turdagi xabarni yuborib bo'lmadi.")
-            return
-        
-        await message.reply_text(f"✅ User {user_id} ga javob yuborildi.")
-        logger.info(f"Admin reply sent to user {user_id} for case {case_id}")
-        update_case_status(case_id, 'closed')
-        
-    except Forbidden:
-        logger.error(f"User {user_id} blocked bot")
-        await message.reply_text(f"⚠️ User {user_id} botni bloklagan!")
-        update_case_status(case_id, 'rejected')
-    except Exception as e:
-        logger.error(f"Failed to send reply: {e}", exc_info=True)
-        await message.reply_text(f"⚠️ Xatolik: {e}")
-
-    # handlers.py ga qo'shish
-
-async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Admin: Barcha foydalanuvchilarga xabar tarqatish"""
-    user = update.effective_user
-    
-    # Faqat adminlar uchun
-    if not is_admin(user.id):
-        await update.message.reply_text("⚠️ Sizda ruxsat yoʻq!")
-        return
-    
-    # Xabar matnini olish
-    if not context.args:
-        await update.message.reply_text(
-            "📢 <b>Broadcast yuborish:</b>\n\n"
-            "Foydalanish: <code>/broadcast Sizning xabaringiz</code>\n\n"
-            "⚠️ Ogohlantirish: Ko'p foydalanuvchiga yuborish vaqt oladi!",
-            parse_mode='HTML'
-        )
-        return
-    
-    message_text = " ".join(context.args)
-    
-    # Tasdiqlash
-    confirm_keyboard = ReplyKeyboardMarkup(
-        [["✅ Ha, yuborish", "❌ Yo'q, bekor qilish"]],
-        resize_keyboard=True
-    )
-    
-    await update.message.reply_text(
-        f"📢 <b>Broadcast tekshirish:</b>\n\n"
-        f"{message_text}\n\n"
-        f"Yuborilsinmi?",
-        parse_mode='HTML',
-        reply_markup=confirm_keyboard
-    )
-    
-    # Keyingi qadamni saqlash
-    context.user_data['broadcast_pending'] = message_text
-
-
 
 @check_ban
 @subscription_required
@@ -1254,9 +1135,47 @@ async def export_operator_stats_excel(update: Update, context: ContextTypes.DEFA
     query = update.callback_query
     await query.answer("⏳ Operator statistika tayyorlanmoqda...")
 
-    await context.bot.send_message(
+    stats = get_operator_statistics()
+    
+    if not stats:
+        await query.message.reply_text("⚠️ Operatorlar statistikasi topilmadi.")
+        return
+
+    # Excel yaratish
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Operatorlar Statistikasi"
+    
+    # Header
+    headers = ["Operator", "Jami biriktirilgan", "Yopilgan (Closed)", "Jarayonda (Accepted)", "Kutilmoqda (Pending)"]
+    ws.append(headers)
+    
+    # Data
+    for row in stats:
+        ws.append([
+            row['full_name'],
+            row['total_assigned'] or 0,
+            row['closed_cases'] or 0,
+            row['accepted_cases'] or 0,
+            row['pending_cases'] or 0
+        ])
+    
+    # Column width
+    for col in ['A']:
+        ws.column_dimensions[col].width = 25
+    for col in ['B', 'C', 'D', 'E']:
+        ws.column_dimensions[col].width = 20
+        
+    # Save to buffer
+    file_stream = io.BytesIO()
+    await asyncio.to_thread(wb.save, file_stream)
+    file_stream.seek(0)
+    
+    await context.bot.send_document(
         chat_id=query.message.chat_id,
-        text="📊 Operator statistics (Not Implemented Yet)"
+        document=file_stream,
+        filename=f"operator_statistika_{datetime.now().strftime('%Y%m%d')}.xlsx",
+        caption="📊 Operatorlar faoliyati statistikasi"
     )
 
 # handle_admin_reply funksiyasini yangilash
@@ -1639,8 +1558,9 @@ async def add_faq_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ==================== ADMIN CHANNEL SETTINGS ====================
 async def admin_channel_menu(query):
     """Majburiy obuna menyusi"""
-    current = get_current_channel_id()
-    text = f"📢 <b>Majburiy Obuna Sozlamalari</b>\n\nHozirgi kanal: {current if current else \"❌ O'rnatilmagan\"}"
+    current = get_setting("required_channel_id")
+    status_text = current if current else "❌ O'rnatilmagan"
+    text = f"📢 <b>Majburiy Obuna Sozlamalari</b>\n\nHozirgi kanal: {status_text}"
     
     keyboard = [
         [InlineKeyboardButton("✏️ O'zgartirish", callback_data="set_channel_start")]
