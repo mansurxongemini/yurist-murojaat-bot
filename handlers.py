@@ -191,6 +191,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode='HTML',
             reply_markup=get_main_keyboard(lang)
         )
+    else:
+        # Fallback for other update types if necessary, though start is usually message or callback
+        await context.bot.send_message(
+            chat_id=user.id,
+            text=welcome_text,
+            parse_mode='HTML',
+            reply_markup=get_main_keyboard(lang)
+        )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel current operation"""
