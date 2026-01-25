@@ -171,34 +171,21 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not welcome_text:
         welcome_text = get_text('welcome', lang=lang, bot_name=BOT_NAME)
     
-    if update.message:
-        await update.message.reply_text(
-            welcome_text,
-            parse_mode='HTML',
-            reply_markup=get_main_keyboard(lang)
-        )
-    elif update.callback_query:
-        # Callback orqali kelgan bo'lsa (masalan til tanlash yoki obuna tekshirish)
-        # Eski xabarni o'chiramiz va yangisini yuboramiz (ReplyKeyboard uchun)
+    # Callback orqali kelgan bo'lsa (masalan til tanlash yoki obuna tekshirish)
+    # Eski xabarni o'chiramiz va yangisini yuboramiz (ReplyKeyboard uchun)
+    if update.callback_query:
         try:
             await update.callback_query.delete_message()
         except Exception:
             pass
-            
-        await context.bot.send_message(
-            chat_id=user.id,
-            text=welcome_text,
-            parse_mode='HTML',
-            reply_markup=get_main_keyboard(lang)
-        )
-    else:
-        # Fallback for other update types if necessary, though start is usually message or callback
-        await context.bot.send_message(
-            chat_id=user.id,
-            text=welcome_text,
-            parse_mode='HTML',
-            reply_markup=get_main_keyboard(lang)
-        )
+
+    # Xabar yuborish (barcha holatlar uchun universal)
+    await context.bot.send_message(
+        chat_id=user.id,
+        text=welcome_text,
+        parse_mode='HTML',
+        reply_markup=get_main_keyboard(lang)
+    )
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Cancel current operation"""
