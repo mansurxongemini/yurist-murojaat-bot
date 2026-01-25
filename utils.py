@@ -261,7 +261,6 @@ TRANSLATIONS = {
         'main_my_cases': "📋 Мои обращения",
         'main_stats': "📊 Моя статистика",
         'main_templates': "📄 Шаблоны заявлений",
-        'main_booking': "📅 Запись на прием",
         'main_faq': "❓ FAQ",
         'main_info': "ℹ️ О боте",
         'main_lang': "🌐 Изменить язык",

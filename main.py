@@ -252,7 +252,6 @@ def main():
     application.add_handler(MessageHandler(text_filter('main_faq'), show_faq))
     application.add_handler(MessageHandler(text_filter('main_info'), bot_info))
     application.add_handler(MessageHandler(text_filter('main_templates'), show_templates))
-    application.add_handler(MessageHandler(text_filter('main_booking'), show_booking_slots))
     application.add_handler(MessageHandler(text_filter('main_lang'), show_language_selection))
     application.add_handler(MessageHandler(text_filter('main_offers'), suggestion_start))
 
@@ -269,7 +268,6 @@ def main():
     
     # Combined callback handler
     application.add_handler(CallbackQueryHandler(admin_operations_callback, pattern=r"^(admin_|del_op_|assign_|set_op_|back_case_|noop|del_faq_|del_channel_|reset_welcome|unblock_|del_tpl_)"))
-    application.add_handler(CallbackQueryHandler(admin_operations_callback, pattern=r"^(admin_|del_op_|assign_|set_op_|back_case_|noop|del_faq_|del_channel_|reset_welcome|unblock_|del_tpl_|add_slots_)"))
     
     # Rating handler
     application.add_handler(CallbackQueryHandler(handle_rating, pattern=r"^rate_\d+_\d+$"))
@@ -291,9 +289,6 @@ def main():
 
     # Template download handler
     application.add_handler(CallbackQueryHandler(download_template_callback, pattern=r"^tpl_dl_"))
-
-    # Booking handler
-    application.add_handler(CallbackQueryHandler(book_slot_callback, pattern=r"^book_slot_"))
 
     # Language handler
     application.add_handler(CallbackQueryHandler(set_language_callback, pattern=r"^lang_"))

@@ -113,7 +113,7 @@ def get_main_keyboard(lang: str = 'uz') -> ReplyKeyboardMarkup:
     t = TRANSLATIONS.get(lang, TRANSLATIONS['uz'])
     return ReplyKeyboardMarkup(
         [[t['main_new_case'], t['main_my_cases']],
-         [t['main_booking'], t['main_templates']],
+         [t['main_templates']],
          [t['main_faq'], t['main_info']],
          [t['main_offers'], t['main_lang']]],
         resize_keyboard=True, input_field_placeholder=t.get('placeholder', "Tanlang...")
@@ -765,7 +765,6 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton(" Bloklanganlar", callback_data="admin_blocked")],
         [InlineKeyboardButton("❓ FAQ Sozlamalari", callback_data="admin_faq")],
         [InlineKeyboardButton("📄 Shablonlar", callback_data="admin_templates")],
-        [InlineKeyboardButton("📅 Qabul Vaqtlari", callback_data="admin_booking")],
         [InlineKeyboardButton("� Majburiy Obuna", callback_data="admin_channel")],
         [InlineKeyboardButton("📝 Welcome Matni", callback_data="admin_welcome")],
         [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast_info")],
@@ -811,7 +810,6 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
             [InlineKeyboardButton("� Bloklanganlar", callback_data="admin_blocked")],
             [InlineKeyboardButton("❓ FAQ Sozlamalari", callback_data="admin_faq")],
             [InlineKeyboardButton("📄 Shablonlar", callback_data="admin_templates")],
-            [InlineKeyboardButton("📅 Qabul Vaqtlari", callback_data="admin_booking")],
             [InlineKeyboardButton("📢 Majburiy Obuna", callback_data="admin_channel")],
             [InlineKeyboardButton("📝 Welcome Matni", callback_data="admin_welcome")],
             [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast_info")],
@@ -843,14 +841,6 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
         
     elif data == "admin_templates":
         await admin_templates_menu(query)
-        return
-
-    elif data == "admin_booking":
-        await admin_booking_menu(query)
-        return
-        
-    elif data == "add_slots_tomorrow":
-        await admin_add_slots_callback(update, context)
         return
 
     elif data == "admin_channel":
@@ -1973,89 +1963,3 @@ async def set_language_callback(update: Update, context: ContextTypes.DEFAULT_TY
     
     # Start ni qayta chaqirish (welcome message uchun)
     await start.__wrapped__(update, context)
-
-# ==================== BOOKING HANDLERS ====================
-@check_ban
-@subscription_required
-async def show_booking_slots(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Foydalanuvchiga bo'sh vaqtlarni ko'rsatish"""
-    slots = get_available_slots()
-    
-    if not slots:
-        await update.message.reply_text(
-            "📅 <b>Qabulga yozilish:</b>\n\n"
-            "Hozircha bo'sh vaqtlar mavjud emas. Keyinroq tekshirib ko'ring.",
-            parse_mode='HTML', reply_markup=get_main_keyboard(get_user_language(update.effective_user.id))
-        )
-        return
-
-    keyboard = []
-    row = []
-    for slot in slots:
-        # Format: 27-Okt 14:00
-        dt = slot['slot_datetime']
-        btn_text = dt.strftime("%d-%b %H:%M")
-        row.append(InlineKeyboardButton(f"🕒 {btn_text}", callback_data=f"book_slot_{slot['id']}"))
-        
-        if len(row) == 2:
-            keyboard.append(row)
-            row = []
-    if row: keyboard.append(row)
-    
-    await update.message.reply_text(
-        "📅 <b>Qabulga yozilish:</b>\n\n"
-        "O'zingizga qulay vaqtni tanlang:",
-        parse_mode='HTML',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def book_slot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Vaqtni band qilish"""
-    query = update.callback_query
-    user = update.effective_user
-    try:
-        slot_id = int(query.data.split("_")[2])
-    except (IndexError, ValueError):
-        await query.answer("Xatolik!", show_alert=True)
-        return
-    
-    if book_slot(slot_id, user.id):
-        await query.answer("✅ Muvaffaqiyatli band qilindi!", show_alert=True)
-        await query.edit_message_text(
-            f"✅ <b>Qabulga yozildingiz!</b>\n\n"
-            f"👤 Ism: {user.full_name}\n"
-            f"🕒 Vaqt muvaffaqiyatli band qilindi.\n\n"
-            f"Iltimos, belgilangan vaqtda aloqada bo'ling yoki ofisga keling.",
-            parse_mode='HTML'
-        )
-    else:
-        await query.answer("⚠️ Bu vaqt allaqachon band qilingan!", show_alert=True)
-        await show_booking_slots(update, context)
-
-async def admin_booking_menu(query):
-    """Admin booking menyusi"""
-    keyboard = [
-        [InlineKeyboardButton("➕ Ertangi kun uchun vaqt ochish", callback_data="add_slots_tomorrow")],
-        [InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")]
-    ]
-    
-    slots = get_available_slots()
-    count = len(slots)
-    
-    await query.edit_message_text(
-        f"📅 <b>Qabul Vaqtlari Boshqaruvi</b>\n\n"
-        f"Hozirda aktiv bo'sh vaqtlar: <b>{count}</b> ta\n\n"
-        f"Vaqt qo'shish tugmasi ertangi kun uchun 09:00 dan 17:00 gacha soatlik vaqtlarni avtomatik yaratadi.",
-        parse_mode='HTML',
-        reply_markup=InlineKeyboardMarkup(keyboard)
-    )
-
-async def admin_add_slots_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Ertangi kun uchun slot yaratish"""
-    query = update.callback_query
-    
-    tomorrow = datetime.now().date() + timedelta(days=1)
-    create_daily_slots(tomorrow)
-    
-    await query.answer(f"✅ {tomorrow} sanasi uchun vaqtlar yaratildi!")
-    await admin_booking_menu(query)

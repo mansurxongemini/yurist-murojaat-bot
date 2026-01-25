@@ -227,16 +227,6 @@ def init_db():
             )
         """)
 
-        # 14. Booking Slots (Qabul vaqtlari)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS booking_slots (
-                id SERIAL PRIMARY KEY,
-                slot_datetime TIMESTAMP NOT NULL UNIQUE,
-                is_booked BOOLEAN DEFAULT FALSE,
-                user_id BIGINT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
         
         # 7. Rate limits jadvali
         cursor.execute("""
@@ -634,50 +624,6 @@ def delete_template(template_id: int):
     """Shablonni o'chirish"""
     with get_db_cursor() as (cursor, conn):
         cursor.execute("DELETE FROM templates WHERE id = %s", (template_id,))
-
-# ===================================================================
-# BOOKING (QABULGA YOZILISH) FUNCTIONS
-# ===================================================================
-def create_daily_slots(day_date: date):
-    """Bir kun uchun (09:00-17:00) slotlar yaratish"""
-    start_hour = 9
-    end_hour = 17
-    
-    with get_db_cursor() as (cursor, conn):
-        for hour in range(start_hour, end_hour + 1):
-            slot_time = datetime.combine(day_date, datetime.min.time()).replace(hour=hour)
-            try:
-                cursor.execute(
-                    "INSERT INTO booking_slots (slot_datetime) VALUES (%s) ON CONFLICT DO NOTHING",
-                    (slot_time,)
-                )
-            except Exception as e:
-                logger.error(f"Slot creation error: {e}")
-
-def get_available_slots() -> List[Dict]:
-    """Bo'sh vaqtlarni olish (kelajakdagi)"""
-    with get_db_cursor() as (cursor, conn):
-        cursor.execute("""
-            SELECT * FROM booking_slots 
-            WHERE is_booked = FALSE AND slot_datetime > NOW() 
-            ORDER BY slot_datetime ASC LIMIT 20
-        """)
-        return [dict(row) for row in cursor.fetchall()]
-
-def book_slot(slot_id: int, user_id: int) -> bool:
-    """Vaqtni band qilish"""
-    with get_db_cursor() as (cursor, conn):
-        cursor.execute("""
-            UPDATE booking_slots 
-            SET is_booked = TRUE, user_id = %s 
-            WHERE id = %s AND is_booked = FALSE
-        """, (user_id, slot_id))
-        return cursor.rowcount > 0
-
-def delete_old_slots():
-    """Eski slotlarni tozalash"""
-    with get_db_cursor() as (cursor, conn):
-        cursor.execute("DELETE FROM booking_slots WHERE slot_datetime < NOW() - INTERVAL '1 day'")
 
 def get_user_language(user_id: int) -> Optional[str]:
     """Foydalanuvchi tilini olish"""
