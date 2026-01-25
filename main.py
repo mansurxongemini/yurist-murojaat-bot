@@ -166,9 +166,9 @@ def main():
 
 
 
-    async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
         logger.error(f"Update caused error: {context.error}", exc_info=True)
-        if update.effective_message:
+        if isinstance(update, Update) and update.effective_message:
             await update.effective_message.reply_text(
                 "⚠️ Tizimda xatolik yuz berdi. Iltimos, keyinroq qayta urinib ko'ring."
             )
