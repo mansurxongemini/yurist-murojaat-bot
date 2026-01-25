@@ -510,7 +510,11 @@ async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYP
         text = "📭 Sizda hozircha murojaatlar topilmadi."
         keyboard = [filter_row]
         if update.callback_query:
-             await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+             try:
+                 await update.callback_query.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+             except BadRequest as e:
+                 if "Message is not modified" not in str(e):
+                     raise e
         else:
              await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
@@ -551,7 +555,11 @@ async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYP
         keyboard.append(nav_row)
     
     if update.callback_query:
-        await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        try:
+            await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+        except BadRequest as e:
+            if "Message is not modified" not in str(e):
+                raise e
     else:
         await update.message.reply_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
 
