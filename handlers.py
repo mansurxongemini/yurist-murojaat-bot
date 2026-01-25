@@ -1130,7 +1130,7 @@ async def add_operator_id_handler(update: Update, context: ContextTypes.DEFAULT_
     
     add_operator(name, gender, telegram_id)
     
-    await update.message.reply_text(f"✅ Operator qo'shildi: <b>{name}</b> (ID: {telegram_id or 'Yo\'q'})", parse_mode='HTML')
+    await update.message.reply_text(f"✅ Operator qo'shildi: <b>{name}</b> (ID: {telegram_id or "Yo'q"})", parse_mode='HTML')
     await admin_panel(update, context)
     return ConversationHandler.END
 
