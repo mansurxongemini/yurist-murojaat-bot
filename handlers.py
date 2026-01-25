@@ -1640,7 +1640,7 @@ async def add_faq_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def admin_channel_menu(query):
     """Majburiy obuna menyusi"""
     current = get_current_channel_id()
-    text = f"📢 <b>Majburiy Obuna Sozlamalari</b>\n\nHozirgi kanal: {current if current else '❌ O\'rnatilmagan'}"
+    text = f"📢 <b>Majburiy Obuna Sozlamalari</b>\n\nHozirgi kanal: {current if current else \"❌ O'rnatilmagan\"}"
     
     keyboard = [
         [InlineKeyboardButton("✏️ O'zgartirish", callback_data="set_channel_start")]
