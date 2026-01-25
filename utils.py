@@ -40,7 +40,7 @@ def extract_message_data(message) -> Tuple[Optional[str], Optional[str], str, Op
     if message.photo:
         return message.photo[-1].file_id, text, "photo", message.photo[-1].file_size, None
     elif message.video:
-        ext = message.video.file_name.split('.')[-1].lower() if message.video.file_name else None
+        ext = os.path.splitext(message.video.file_name)[1].lower() if message.video.file_name else None
         return message.video.file_id, text, "video", message.video.file_size, ext
     elif message.voice:
         return message.voice.file_id, text, "voice", message.voice.file_size, None

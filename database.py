@@ -1,36 +1,59 @@
 import os
 import psycopg2
 import psycopg2.extras
+from psycopg2 import pool
 from contextlib import contextmanager
 from datetime import datetime, date, timezone, timedelta
 from typing import Optional, List, Tuple, Any, Dict
 import logging
+from config import DB_MIN_CONN, DB_MAX_CONN
 
 logger = logging.getLogger(__name__)
 
 # ===================================================================
-# 1. PostgreSQL Ulanish
+# 1. PostgreSQL Ulanish (Connection Pool)
 # ===================================================================
-def get_db_connection():
-    """PostgreSQL ulanish"""
+
+# Global pool o'zgaruvchisi
+db_pool = None
+
+def init_pool():
+    """Baza ulanish hovuzini (pool) yaratish"""
+    global db_pool
     db_url = os.getenv("DATABASE_URL")
     if not db_url:
         raise ValueError("DATABASE_URL kiritilmagan! .env faylni tekshiring.")
     
-    # Ba'zi xizmatlar (Railway/Heroku) postgres:// beradi, standart postgresql://
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
     
     try:
-        conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.DictCursor)
-        return conn
-    except psycopg2.OperationalError as e:
-        raise ValueError(f"❌ PostgreSQL ga ulanib bo'lmadi!\nDATABASE_URL yoki serverni tekshiring.\nXato: {e}")
+        # Min 1, Max 20 ta ulanishni ushlab turadi
+        db_pool = psycopg2.pool.ThreadedConnectionPool(
+            DB_MIN_CONN, DB_MAX_CONN,
+            dsn=db_url,
+            cursor_factory=psycopg2.extras.DictCursor
+        )
+        logger.info("✅ Database Connection Pool created")
+    except Exception as e:
+        logger.error(f"❌ Pool yaratishda xatolik: {e}")
+        raise
+
+def close_pool():
+    """Poolni yopish"""
+    global db_pool
+    if db_pool:
+        db_pool.closeall()
+        logger.info("✅ Database Connection Pool closed")
 
 @contextmanager
 def get_db_cursor():
-    """PostgreSQL context manager"""
-    conn = get_db_connection()
+    """PostgreSQL context manager with Pool"""
+    global db_pool
+    if not db_pool:
+        init_pool()
+    
+    conn = db_pool.getconn()
     try:
         cursor = conn.cursor()
         yield cursor, conn
@@ -41,7 +64,8 @@ def get_db_cursor():
         raise
     finally:
         cursor.close()
-        conn.close()
+        # Ulanishni yopmaymiz, poolga qaytaramiz!
+        db_pool.putconn(conn)
 
 # ===================================================================
 # 2. BARCHA JADVALLARNI YARATISH
@@ -104,6 +128,16 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+
+        # Operators jadvaliga telegram_id ustunini qo'shish (mavjud bo'lmasa)
+        cursor.execute("""
+            DO $$ 
+            BEGIN 
+                IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='operators' AND column_name='telegram_id') THEN 
+                    ALTER TABLE operators ADD COLUMN telegram_id BIGINT; 
+                END IF; 
+            END $$;
+        """)
         
         # 4. Cases jadvali
         cursor.execute("""
@@ -142,6 +176,34 @@ def init_db():
                 closed_cases INTEGER DEFAULT 0,
                 last_case_at TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 10. FAQ jadvali
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS faq (
+                id SERIAL PRIMARY KEY,
+                question TEXT NOT NULL,
+                answer TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # 11. Settings jadvali (Dinamik sozlamalar uchun)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS settings (
+                key VARCHAR(50) PRIMARY KEY,
+                value TEXT
+            )
+        """)
+
+        # 12. Blocked Users jadvali
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS blocked_users (
+                user_id BIGINT PRIMARY KEY,
+                reason TEXT,
+                blocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                blocked_by BIGINT
             )
         """)
         
@@ -314,7 +376,7 @@ def get_case_by_message_id(msg_id: int) -> Optional[Dict]:
         return dict(result) if result else None
 
 
-def get_user_cases(user_id: int, limit: int = 10) -> List[Dict]:
+def get_user_cases(user_id: int, limit: int = 10, offset: int = 0) -> List[Dict]:
     """Foydalanuvchining murojaatlarini olish"""
     with get_db_cursor() as (cursor, conn):
         cursor.execute("""
@@ -322,9 +384,15 @@ def get_user_cases(user_id: int, limit: int = 10) -> List[Dict]:
             FROM cases 
             WHERE user_id = %s 
             ORDER BY created_at DESC 
-            LIMIT %s
-        """, (user_id, limit))
+            LIMIT %s OFFSET %s
+        """, (user_id, limit, offset))
         return [dict(row) for row in cursor.fetchall()]
+
+def count_user_cases(user_id: int) -> int:
+    """Foydalanuvchining jami murojaatlari sonini olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT COUNT(*) FROM cases WHERE user_id = %s", (user_id,))
+        return cursor.fetchone()[0]
 
 
 def get_user_stats(user_id: int) -> Dict:
@@ -463,10 +531,10 @@ def search_user_cases(user_id: int, query: str, limit: int = 10) -> List[Dict]:
 # ===================================================================
 # OPERATORLAR BILAN ISHLASH
 # ===================================================================
-def add_operator(full_name: str, gender: str = 'male') -> int:
+def add_operator(full_name: str, gender: str = 'male', telegram_id: int = None) -> int:
     """Yangi operator qo'shish"""
     with get_db_cursor() as (cursor, conn):
-        cursor.execute("INSERT INTO operators (full_name, gender) VALUES (%s, %s) RETURNING id", (full_name, gender))
+        cursor.execute("INSERT INTO operators (full_name, gender, telegram_id) VALUES (%s, %s, %s) RETURNING id", (full_name, gender, telegram_id))
         return cursor.fetchone()['id']
 
 def get_active_operators() -> List[Dict]:
@@ -496,6 +564,13 @@ def get_operator_name(operator_id: int) -> Optional[str]:
         cursor.execute("SELECT full_name FROM operators WHERE id = %s", (operator_id,))
         res = cursor.fetchone()
         return res['full_name'] if res else None
+
+def get_operator_telegram_id(operator_id: int) -> Optional[int]:
+    """Operatorning Telegram ID sini olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT telegram_id FROM operators WHERE id = %s", (operator_id,))
+        res = cursor.fetchone()
+        return res['telegram_id'] if res else None
 
 def get_case_by_number_admin(case_number: int) -> Optional[Dict]:
     """Case raqami bo'yicha olish (admin uchun)"""
@@ -545,3 +620,96 @@ def get_case_by_number_and_user(case_number: int, user_id: int) -> Optional[Dict
         cursor.execute("SELECT * FROM cases WHERE case_number = %s AND user_id = %s", (case_number, user_id))
         result = cursor.fetchone()
         return dict(result) if result else None
+
+# ===================================================================
+# FAQ FUNCTIONS
+# ===================================================================
+def get_faqs() -> List[Dict]:
+    """Barcha FAQ larni olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT * FROM faq ORDER BY id")
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_faq(faq_id: int) -> Optional[Dict]:
+    """ID bo'yicha FAQ olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT * FROM faq WHERE id = %s", (faq_id,))
+        result = cursor.fetchone()
+        return dict(result) if result else None
+
+def add_faq(question: str, answer: str):
+    """Yangi FAQ qo'shish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("INSERT INTO faq (question, answer) VALUES (%s, %s)", (question, answer))
+
+def delete_faq(faq_id: int):
+    """FAQ ni o'chirish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("DELETE FROM faq WHERE id = %s", (faq_id,))
+
+# ===================================================================
+# SETTINGS FUNCTIONS
+# ===================================================================
+def get_setting(key: str) -> Optional[str]:
+    """Sozlamani olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT value FROM settings WHERE key = %s", (key,))
+        res = cursor.fetchone()
+        return res['value'] if res else None
+
+def set_setting(key: str, value: str):
+    """Sozlamani saqlash"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("""
+            INSERT INTO settings (key, value) VALUES (%s, %s)
+            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+        """, (key, value))
+
+# ===================================================================
+# BLOCK/BAN FUNCTIONS
+# ===================================================================
+def block_user(user_id: int, reason: str = None, admin_id: int = None):
+    """Foydalanuvchini bloklash"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("""
+            INSERT INTO blocked_users (user_id, reason, blocked_by)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (user_id) DO UPDATE SET
+                reason = EXCLUDED.reason,
+                blocked_at = CURRENT_TIMESTAMP,
+                blocked_by = EXCLUDED.blocked_by
+        """, (user_id, reason, admin_id))
+
+def unblock_user(user_id: int):
+    """Foydalanuvchini blokdan chiqarish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("DELETE FROM blocked_users WHERE user_id = %s", (user_id,))
+
+def is_user_blocked(user_id: int) -> bool:
+    """Foydalanuvchi bloklanganligini tekshirish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT 1 FROM blocked_users WHERE user_id = %s", (user_id,))
+        return cursor.fetchone() is not None
+
+def get_blocked_users_list() -> List[Dict]:
+    """Bloklangan foydalanuvchilar ro'yxati"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("SELECT * FROM blocked_users ORDER BY blocked_at DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_operator_statistics() -> List[Dict]:
+    """Operatorlar statistikasini olish"""
+    with get_db_cursor() as (cursor, conn):
+        cursor.execute("""
+            SELECT o.full_name,
+                   COUNT(c.case_id) as total_assigned,
+                   SUM(CASE WHEN c.status = 'closed' THEN 1 ELSE 0 END) as closed_cases,
+                   SUM(CASE WHEN c.status = 'accepted' THEN 1 ELSE 0 END) as accepted_cases,
+                   SUM(CASE WHEN c.status = 'pending' THEN 1 ELSE 0 END) as pending_cases
+            FROM operators o
+            LEFT JOIN cases c ON o.id = c.operator_id
+            WHERE o.is_active = TRUE
+            GROUP BY o.id, o.full_name
+            ORDER BY closed_cases DESC
+        """)
+        return [dict(row) for row in cursor.fetchall()]

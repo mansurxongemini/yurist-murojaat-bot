@@ -5,6 +5,7 @@ from typing import Optional, List
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, User
 from telegram.ext import ContextTypes, ConversationHandler
 from telegram.error import Forbidden, BadRequest
+from functools import wraps
 
 import asyncio
 from config import *
@@ -19,7 +20,9 @@ logger = logging.getLogger(__name__)
 
 # State constants
 BROADCAST_WAITING = 1
-ADMIN_ADD_OP_NAME, ADMIN_ADD_OP_GENDER, RE_APPEAL_COLLECTING = range(20, 23)
+SUGGESTION_WAITING = 2
+ADMIN_ADD_OP_NAME, ADMIN_ADD_OP_GENDER, ADMIN_ADD_OP_ID, RE_APPEAL_COLLECTING, ADMIN_SET_CHANNEL, ADMIN_SET_WELCOME, ADMIN_BAN_ID = range(20, 27)
+FAQ_QUESTION, FAQ_ANSWER = range(30, 32)
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/broadcast komandasi - 1-qadam"""
@@ -76,7 +79,8 @@ async def broadcast_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 percent = (idx / len(users)) * 100
                 await msg.edit_text(f"⏳ Yuborilmoqda... {percent:.1f}%")
             
-            await asyncio.sleep(0.5)
+            # Tezlikni oshirish (1000 user uchun 500s emas, 50s ketadi)
+            await asyncio.sleep(0.05)
             
         except Exception as e:
             failed += 1
@@ -104,7 +108,8 @@ async def broadcast_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # Keyboard definitions
 MAIN_KEYBOARD = ReplyKeyboardMarkup(
     [["📩 Yangi murojaat", "📋 Mening murojaatlarim"],
-     ["📊 Mening statistikam", "ℹ️ Bot haqida"]],
+     ["📊 Mening statistikam", "ℹ️ Bot haqida"],
+     ["❓ FAQ", "💡 Takliflar"]],
     resize_keyboard=True, input_field_placeholder="Tanlang..."
 )
 
@@ -141,24 +146,30 @@ TOPIC, COLLECTING = range(2)
 # ==================== Command Handlers ====================
 # handlers.py faylida start funksiyasini almashtirish:
 
+@check_ban
+@subscription_required
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     logger.info(f"User {user.id} started bot")
     
     context.user_data.clear()
     
-    # Variant 3 matni
-    welcome_text = (
-        "👋 Assalomu alaykum!\n\n"
-        "<b>🤖 Yurist Muhammadjon Bot ga xush kelibsiz!</b>\n"
-        "❓ <b>Bunda siz:</b>\n"
-        "✅ Tursunov Legal Volunteer jamoasidan bepul yuridik maslahat olishingiz mumkin\n"
-        "✅ Biz sizga javob beramiz (24-72 soat)\n"
-        "❓ <b>Qanday yuboriladi?</b>\n"
-        "1️⃣ \"📩 Yangi murojaat\" → 2️⃣ Mavzu nomi → 3️⃣ xabar → 4️⃣ Yuborish\n\n"
+    # Bazadan matnni olish
+    welcome_text = get_setting("welcome_message")
+    
+    if not welcome_text:
+        # Default matn
+        welcome_text = (
+            "👋 Assalomu alaykum!\n\n"
+            f"<b>🤖 {BOT_NAME} ga xush kelibsiz!</b>\n"
+            "❓ <b>Bunda siz:</b>\n"
+            f"✅ {TEAM_NAME} jamoasidan bepul yuridik maslahat olishingiz mumkin\n"
+            "✅ Biz sizga javob beramiz (24-72 soat)\n"
+            "❓ <b>Qanday yuboriladi?</b>\n"
+            "1️⃣ \"📩 Yangi murojaat\" → 2️⃣ Mavzu nomi → 3️⃣ xabar → 4️⃣ Yuborish\n\n"
 
-        "<b>🚀 Murojaat yuboring va bepul yuridik maslahat oling!</b>"
-    )
+            "<b>🚀 Murojaat yuboring va bepul yuridik maslahat oling!</b>"
+        )
     
     await update.message.reply_text(
         welcome_text,
@@ -214,6 +225,8 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ==================== Message Handlers ====================
+@check_ban
+@subscription_required
 @rate_limit
 async def new_session(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Start new case session"""
@@ -445,16 +458,30 @@ async def confirm_submit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⚠️ Murojaatni yuborishda xatolik.", reply_markup=SESSION_KEYBOARD)
 
 
+@check_ban
+@subscription_required
 async def list_my_cases(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """List user's cases"""
     user = update.effective_user
-    cases = get_user_cases(user.id, limit=10)
+    await show_user_cases_page(update, context, user.id, page=1)
+
+async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, page: int):
+    limit = 5
+    offset = (page - 1) * limit
     
+    cases = get_user_cases(user_id, limit, offset)
+    total_count = count_user_cases(user_id)
+    total_pages = (total_count + limit - 1) // limit
+
     if not cases:
-        await update.message.reply_text("📭 Sizda hozircha murojaatlar topilmadi.", reply_markup=MAIN_KEYBOARD)
+        text = "📭 Sizda hozircha murojaatlar topilmadi."
+        if update.callback_query:
+             await update.callback_query.edit_message_text(text)
+        else:
+             await update.message.reply_text(text, reply_markup=MAIN_KEYBOARD)
         return
     
-    text = "📋 <b>Sizning murojaatlaringiz:</b>\n\n"
+    text = f"📋 <b>Sizning murojaatlaringiz ({total_count} ta):</b>\n\n"
     keyboard = []
     row = []
     
@@ -475,9 +502,33 @@ async def list_my_cases(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if row:
         keyboard.append(row)
     
-    await update.message.reply_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+    # Pagination buttons
+    nav_row = []
+    if page > 1:
+        nav_row.append(InlineKeyboardButton("⬅️ Oldingi", callback_data=f"mycases_page_{page-1}"))
+    
+    if total_pages > 1:
+        nav_row.append(InlineKeyboardButton(f"{page}/{total_pages}", callback_data="noop"))
+    
+    if page < total_pages:
+        nav_row.append(InlineKeyboardButton("Keyingi ➡️", callback_data=f"mycases_page_{page+1}"))
+        
+    if nav_row:
+        keyboard.append(nav_row)
+    
+    if update.callback_query:
+        await update.callback_query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+    else:
+        await update.message.reply_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
 
+async def my_cases_pagination_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    page = int(query.data.split("_")[2])
+    await show_user_cases_page(update, context, query.from_user.id, page)
 
+@check_ban
+@subscription_required
 async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Show user statistics"""
     user = update.effective_user
@@ -510,6 +561,8 @@ async def show_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # handlers.py faylida bot_info funksiyasini almashtiring:
 
+@check_ban
+@subscription_required
 async def bot_info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Bot haqida ma'lumotni chiqarish"""
     user = update.effective_user
@@ -772,6 +825,8 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+@check_ban
+@subscription_required
 async def search_cases(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Foydalanuvchi murojaatlarini qidirish"""
     user = update.effective_user
@@ -821,6 +876,11 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("👥 Operatorlar", callback_data="admin_operators")],
+        [InlineKeyboardButton("👨‍💼 Operator Statistikasi", callback_data="admin_op_stats_view")],
+        [InlineKeyboardButton(" Bloklanganlar", callback_data="admin_blocked")],
+        [InlineKeyboardButton("❓ FAQ Sozlamalari", callback_data="admin_faq")],
+        [InlineKeyboardButton("📢 Majburiy Obuna", callback_data="admin_channel")],
+        [InlineKeyboardButton("📝 Welcome Matni", callback_data="admin_welcome")],
         [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast_info")],
         [InlineKeyboardButton("📊 Statistika (Excel)", callback_data="admin_stats_export")],
         [InlineKeyboardButton("❌ Yopish", callback_data="admin_close")]
@@ -859,6 +919,11 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
     elif data == "admin_back":
         keyboard = [
             [InlineKeyboardButton("👥 Operatorlar", callback_data="admin_operators")],
+            [InlineKeyboardButton("👨‍💼 Operator Statistikasi", callback_data="admin_op_stats_view")],
+            [InlineKeyboardButton("� Bloklanganlar", callback_data="admin_blocked")],
+            [InlineKeyboardButton("❓ FAQ Sozlamalari", callback_data="admin_faq")],
+            [InlineKeyboardButton("📢 Majburiy Obuna", callback_data="admin_channel")],
+            [InlineKeyboardButton("📝 Welcome Matni", callback_data="admin_welcome")],
             [InlineKeyboardButton("📢 Broadcast", callback_data="admin_broadcast_info")],
             [InlineKeyboardButton("📊 Statistika (Excel)", callback_data="admin_stats_export")],
             [InlineKeyboardButton("❌ Yopish", callback_data="admin_close")]
@@ -872,6 +937,52 @@ async def admin_operations_callback(update: Update, context: ContextTypes.DEFAUL
 
     elif data == "admin_operators":
         await show_operators_menu(query)
+        return
+    
+    elif data == "admin_op_stats_view":
+        await show_operator_stats(query)
+        return
+    
+    elif data == "admin_blocked":
+        await admin_blocked_menu(query)
+        return
+
+    elif data == "admin_faq":
+        await admin_faq_menu(query)
+        return
+
+    elif data == "admin_channel":
+        await admin_channel_menu(query)
+        return
+
+    elif data == "admin_welcome":
+        await admin_welcome_menu(query)
+        return
+
+    elif data.startswith("unblock_"):
+        user_id = int(data.split("_")[1])
+        unblock_user(user_id)
+        await query.answer("✅ Foydalanuvchi blokdan chiqarildi")
+        await admin_blocked_menu(query)
+        return
+
+    elif data == "reset_welcome":
+        set_setting("welcome_message", "")
+        await query.answer("✅ Default holatga qaytarildi")
+        await admin_welcome_menu(query)
+        return
+
+    elif data == "del_channel_confirm":
+        set_setting("required_channel_id", "")
+        await query.answer("✅ Majburiy obuna o'chirildi")
+        await admin_channel_menu(query)
+        return
+
+    elif data.startswith("del_faq_"):
+        faq_id = int(data.split("_")[2])
+        delete_faq(faq_id)
+        await query.answer("✅ O'chirildi")
+        await admin_faq_menu(query)
         return
 
     elif data == "admin_broadcast_info":
@@ -996,12 +1107,41 @@ async def add_operator_gender_handler(update: Update, context: ContextTypes.DEFA
     
     gender = query.data.split("_")[1]
     name = context.user_data['new_op_name']
+    context.user_data['new_op_gender'] = gender
     
-    add_operator(name, gender)
+    await query.edit_message_text(
+        "🆔 <b>Operatorning Telegram ID sini kiriting:</b>\n\n"
+        "Bu operatorga xabarnoma yuborish uchun kerak.\n"
+        "Agar bilmasangiz /skip ni bosing.",
+        parse_mode='HTML'
+    )
+    return ADMIN_ADD_OP_ID
+
+async def add_operator_id_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Save operator with ID"""
+    id_text = update.message.text
+    telegram_id = None
     
-    await query.edit_message_text(f"✅ Operator qo'shildi: <b>{name}</b> ({'Erkak' if gender=='male' else 'Ayol'})", parse_mode='HTML')
+    if id_text.isdigit():
+        telegram_id = int(id_text)
     
-    # Show admin panel again
+    name = context.user_data['new_op_name']
+    gender = context.user_data['new_op_gender']
+    
+    add_operator(name, gender, telegram_id)
+    
+    await update.message.reply_text(f"✅ Operator qo'shildi: <b>{name}</b> (ID: {telegram_id or 'Yo\'q'})", parse_mode='HTML')
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+async def add_operator_skip_id(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Skip ID"""
+    name = context.user_data['new_op_name']
+    gender = context.user_data['new_op_gender']
+    
+    add_operator(name, gender, None)
+    
+    await update.message.reply_text(f"✅ Operator qo'shildi: <b>{name}</b> (ID: Yo'q)", parse_mode='HTML')
     await admin_panel(update, context)
     return ConversationHandler.END
 
@@ -1209,6 +1349,7 @@ async def cancel_on_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ===================================================================
 # RE-APPEAL (QAYTA MUROJAAT) HANDLERS
 # ===================================================================
+@check_ban
 async def start_re_appeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Qayta murojaat qilishni boshlash"""
     query = update.callback_query
@@ -1292,3 +1433,329 @@ async def handle_re_appeal_message(update: Update, context: ContextTypes.DEFAULT
 
     context.user_data.clear()
     return ConversationHandler.END
+
+
+@check_ban
+@subscription_required
+async def suggestion_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Takliflar bo'limi - 1-qadam"""
+    await update.message.reply_text(
+        "💡 <b>Taklif va shikoyatlar</b>\n\n"
+        "Bot faoliyati bo'yicha taklif yoki shikoyatingizni yozib qoldiring.\n"
+        "Xabaringiz to'g'ridan-to'g'ri adminga yuboriladi.",
+        parse_mode='HTML',
+        reply_markup=ReplyKeyboardMarkup([["❌ Bekor qilish"]], resize_keyboard=True)
+    )
+    return SUGGESTION_WAITING
+
+
+async def suggestion_send(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Taklifni qabul qilish va adminga yuborish"""
+    user = update.effective_user
+    text = update.message.text
+    
+    # Birinchi adminga yuborish (Owner)
+    target_admin_id = ADMIN_IDS[0] if ADMIN_IDS else None
+    
+    if target_admin_id:
+        try:
+            await context.bot.send_message(
+                chat_id=target_admin_id,
+                text=f"💡 <b>BOT UCHUN TAKLIF/SHIKOYAT</b>\n\n"
+                     f"{get_user_contact_text(user)}\n\n"
+                     f"📝 <b>Mazmuni:</b>\n{text}",
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"Taklifni adminga yuborishda xato: {e}")
+    
+    await update.message.reply_text(
+        "✅ Taklifingiz qabul qilindi va adminga yuborildi!\nE'tiboringiz uchun rahmat.", 
+        reply_markup=MAIN_KEYBOARD
+    )
+    return ConversationHandler.END
+
+
+async def suggestion_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Taklifni bekor qilish"""
+    await update.message.reply_text("❌ Bekor qilindi.", reply_markup=MAIN_KEYBOARD)
+    return ConversationHandler.END
+
+
+async def check_subscription_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Obunani tekshirish tugmasi"""
+    query = update.callback_query
+    await query.answer()
+    
+    if await check_membership(query.from_user.id, context):
+        await query.delete_message()
+        await query.message.reply_text("✅ Rahmat! Obuna tasdiqlandi.")
+        # Asl start funksiyasini chaqiramiz (qayta tekshirmaslik uchun)
+        await start.__wrapped__(update, context)
+    else:
+        await query.answer("❌ Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
+
+
+# ==================== FAQ HANDLERS ====================
+@check_ban
+@subscription_required
+async def show_faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """FAQ bo'limi - Foydalanuvchi uchun"""
+    faqs = get_faqs()
+    if not faqs:
+        await update.message.reply_text("📭 Hozircha savollar yo'q.", reply_markup=MAIN_KEYBOARD)
+        return
+    
+    keyboard = []
+    for faq in faqs:
+        keyboard.append([InlineKeyboardButton(f"❓ {faq['question']}", callback_data=f"faq_show_{faq['id']}")])
+    
+    await update.message.reply_text(
+        "❓ <b>Tez-tez so'raladigan savollar:</b>\n\nSavol ustiga bosing:",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def faq_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """FAQ navigatsiya"""
+    query = update.callback_query
+    await query.answer()
+    
+    data = query.data
+    
+    if data == "faq_back":
+        faqs = get_faqs()
+        keyboard = []
+        for faq in faqs:
+            keyboard.append([InlineKeyboardButton(f"❓ {faq['question']}", callback_data=f"faq_show_{faq['id']}")])
+        
+        await query.edit_message_text(
+            "❓ <b>Tez-tez so'raladigan savollar:</b>\n\nSavol ustiga bosing:",
+            parse_mode='HTML',
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        
+    elif data.startswith("faq_show_"):
+        faq_id = int(data.split("_")[2])
+        faq = get_faq(faq_id)
+        
+        if faq:
+            await query.edit_message_text(
+                f"❓ <b>{faq['question']}</b>\n\n💬 {faq['answer']}",
+                parse_mode='HTML',
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Orqaga", callback_data="faq_back")]])
+            )
+        else:
+            await query.answer("Savol topilmadi!", show_alert=True)
+            # Refresh list
+            await show_faq(update, context)
+
+async def admin_faq_menu(query):
+    """Admin FAQ menu"""
+    faqs = get_faqs()
+    keyboard = []
+    
+    for faq in faqs:
+        keyboard.append([
+            InlineKeyboardButton(f"❓ {faq['question'][:20]}...", callback_data="noop"),
+            InlineKeyboardButton("🗑", callback_data=f"del_faq_{faq['id']}")
+        ])
+    
+    keyboard.append([InlineKeyboardButton("➕ Savol qo'shish", callback_data="add_faq_start")])
+    keyboard.append([InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")])
+    
+    await query.edit_message_text(
+        "❓ <b>FAQ Sozlamalari:</b>",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def add_faq_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Start adding FAQ"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "✍️ <b>Yangi savolni kiriting:</b>\n\n"
+        "Bekor qilish uchun /cancel ni bosing.",
+        parse_mode='HTML'
+    )
+    return FAQ_QUESTION
+
+async def add_faq_question_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data['new_faq_question'] = update.message.text
+    await update.message.reply_text("✍️ <b>Endi javobni kiriting:</b>", parse_mode='HTML')
+    return FAQ_ANSWER
+
+async def add_faq_answer_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    question = context.user_data['new_faq_question']
+    answer = update.message.text
+    
+    add_faq(question, answer)
+    
+    await update.message.reply_text(f"✅ FAQ qo'shildi:\n\n❓ {question}\n💬 {answer}")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+async def add_faq_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Bekor qilindi.")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+
+# ==================== ADMIN CHANNEL SETTINGS ====================
+async def admin_channel_menu(query):
+    """Majburiy obuna menyusi"""
+    current = get_current_channel_id()
+    text = f"📢 <b>Majburiy Obuna Sozlamalari</b>\n\nHozirgi kanal: {current if current else '❌ O\'rnatilmagan'}"
+    
+    keyboard = [
+        [InlineKeyboardButton("✏️ O'zgartirish", callback_data="set_channel_start")]
+    ]
+    
+    if current:
+        keyboard.append([InlineKeyboardButton("🗑 O'chirib tashlash", callback_data="del_channel_confirm")])
+        
+    keyboard.append([InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")])
+    
+    await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def set_channel_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Kanalni o'zgartirishni boshlash"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "📢 <b>Kanal ID yoki Username ni yuboring:</b>\n\n"
+        "Masalan: <code>@kanal_username</code> yoki <code>-100123456789</code>\n\n"
+        "⚠️ <b>Muhim:</b> Bot ushbu kanalda <b>ADMIN</b> bo'lishi shart!",
+        parse_mode='HTML'
+    )
+    return ADMIN_SET_CHANNEL
+
+async def set_channel_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Kanalni saqlash"""
+    channel_id = update.message.text.strip()
+    
+    # Tekshirish
+    try:
+        chat = await context.bot.get_chat(channel_id)
+        member = await context.bot.get_chat_member(channel_id, context.bot.id)
+        if member.status != 'administrator':
+            await update.message.reply_text("⚠️ Bot ushbu kanalda admin emas! Iltimos, avval botni kanalga admin qiling.")
+            return ADMIN_SET_CHANNEL
+    except Exception as e:
+        await update.message.reply_text(f"⚠️ Kanalni tekshirishda xatolik: {e}\nKanal username/ID to'g'riligini va bot admin ekanligini tekshiring.")
+        return ADMIN_SET_CHANNEL
+
+    set_setting("required_channel_id", channel_id)
+    await update.message.reply_text(f"✅ Majburiy obuna kanali o'zgartirildi: {channel_id}")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+
+# ==================== ADMIN WELCOME SETTINGS ====================
+async def admin_welcome_menu(query):
+    """Welcome message menyusi"""
+    current = get_setting("welcome_message")
+    if not current:
+        preview = "<i>(Default matn ishlatilmoqda)</i>"
+    else:
+        preview = f"{current[:100]}..." if len(current) > 100 else current
+
+    text = f"📝 <b>Welcome Message Sozlamalari</b>\n\nHozirgi matn:\n{preview}"
+    
+    keyboard = [
+        [InlineKeyboardButton("✏️ O'zgartirish", callback_data="set_welcome_start")],
+        [InlineKeyboardButton("🔄 Default holatga qaytarish", callback_data="reset_welcome")],
+        [InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")]
+    ]
+    
+    await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def set_welcome_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Welcome matnini o'zgartirishni boshlash"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "📝 <b>Yangi Welcome matnini yuboring:</b>\n\n"
+        "HTML format qo'llab quvvatlanadi (<b>bold</b>, <i>italic</i>).\n"
+        "Bekor qilish uchun /cancel ni bosing.",
+        parse_mode='HTML'
+    )
+    return ADMIN_SET_WELCOME
+
+async def set_welcome_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Welcome matnini saqlash"""
+    new_text = update.message.text
+    set_setting("welcome_message", new_text)
+    
+    await update.message.reply_text("✅ Welcome matni yangilandi!")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+
+# ==================== ADMIN BLOCKED USERS ====================
+async def admin_blocked_menu(query):
+    """Bloklangan foydalanuvchilar menyusi"""
+    blocked_users = get_blocked_users_list()
+    keyboard = []
+    
+    for user in blocked_users:
+        keyboard.append([
+            InlineKeyboardButton(f"👤 {user['user_id']} ({user['reason'] or 'Sababsiz'})", callback_data="noop"),
+            InlineKeyboardButton("🔓 Ochish", callback_data=f"unblock_{user['user_id']}")
+        ])
+    
+    keyboard.append([InlineKeyboardButton("➕ Bloklash (ID orqali)", callback_data="ban_user_start")])
+    keyboard.append([InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")])
+    
+    await query.edit_message_text(
+        f"🚫 <b>Bloklangan foydalanuvchilar:</b> {len(blocked_users)} ta",
+        parse_mode='HTML',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def ban_user_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchini bloklashni boshlash"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "🚫 <b>Bloklanadigan foydalanuvchi ID sini yuboring:</b>\n\n"
+        "Masalan: <code>123456789</code>",
+        parse_mode='HTML'
+    )
+    return ADMIN_BAN_ID
+
+async def ban_user_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Foydalanuvchini bloklash"""
+    user_id_text = update.message.text.strip()
+    if not user_id_text.isdigit():
+        await update.message.reply_text("⚠️ Iltimos, faqat raqamli ID yuboring!")
+        return ADMIN_BAN_ID
+    
+    user_id = int(user_id_text)
+    block_user(user_id, reason="Admin tomonidan", admin_id=update.effective_user.id)
+    
+    await update.message.reply_text(f"✅ Foydalanuvchi {user_id} bloklandi!")
+    await admin_panel(update, context)
+    return ConversationHandler.END
+
+
+async def show_operator_stats(query):
+    """Operatorlar statistikasini ko'rsatish"""
+    stats = get_operator_statistics()
+    
+    if not stats:
+        text = "👨‍💼 <b>Operatorlar statistikasi:</b>\n\nMa'lumot topilmadi yoki operatorlar yo'q."
+    else:
+        text = "👨‍💼 <b>Operatorlar statistikasi:</b>\n\n"
+        for op in stats:
+            text += (
+                f"👤 <b>{op['full_name']}</b>\n"
+                f"✅ Javob berilgan: <b>{op['closed_cases'] or 0}</b>\n"
+                f"⏳ Jarayonda: <b>{op['accepted_cases'] or 0}</b>\n"
+                f"📥 Jami biriktirilgan: <b>{op['total_assigned'] or 0}</b>\n"
+                f"➖➖➖➖➖➖➖➖\n"
+            )
+            
+    keyboard = [[InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")]]
+    await query.edit_message_text(text, parse_mode='HTML', reply_markup=InlineKeyboardMarkup(keyboard))
