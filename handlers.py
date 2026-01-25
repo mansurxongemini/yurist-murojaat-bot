@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # State constants
 BROADCAST_WAITING = 1
 SUGGESTION_WAITING = 2
-ADMIN_ADD_OP_NAME, ADMIN_ADD_OP_GENDER, ADMIN_ADD_OP_ID, RE_APPEAL_COLLECTING, ADMIN_SET_CHANNEL, ADMIN_SET_WELCOME, ADMIN_BAN_ID = range(20, 27)
+ADMIN_ADD_OP_NAME, ADMIN_ADD_OP_GENDER, ADMIN_ADD_OP_ID, RE_APPEAL_COLLECTING, ADMIN_SET_CHANNEL, ADMIN_SET_WELCOME, ADMIN_BAN_ID, ADMIN_SET_LIMIT = range(20, 28)
 FAQ_QUESTION, FAQ_ANSWER = range(30, 32)
 
 async def broadcast_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1762,8 +1762,12 @@ async def admin_system_menu(query):
     maintenance = get_setting("maintenance_mode")
     status_text = "✅ YOQILGAN" if maintenance == "on" else "❌ O'CHIRILGAN"
     
+    current_limit = get_setting("rate_limit_per_day")
+    limit_text = current_limit if current_limit else str(RATE_LIMIT_PER_DAY)
+    
     keyboard = [
         [InlineKeyboardButton(f"🛑 Texnik Tanaffus: {status_text}", callback_data="admin_maint_toggle")],
+        [InlineKeyboardButton(f"🔢 Kunlik Limit: {limit_text}", callback_data="set_limit_start")],
         [InlineKeyboardButton("💾 To'liq Backup (JSON)", callback_data="admin_backup")],
         [InlineKeyboardButton("🔙 Orqaga", callback_data="admin_back")]
     ]
@@ -1771,6 +1775,7 @@ async def admin_system_menu(query):
     await query.edit_message_text(
         "⚙️ <b>Tizim Sozlamalari</b>\n\n"
         "• <b>Texnik Tanaffus:</b> Yoqilsa, oddiy foydalanuvchilar yangi murojaat yubora olmaydi (Adminlar mustasno).\n"
+        "• <b>Kunlik Limit:</b> Foydalanuvchi bir kunda nechta murojaat yubora olishi.\n"
         "• <b>Backup:</b> Barcha ma'lumotlarni JSON formatida yuklab olish.",
         parse_mode='HTML',
         reply_markup=InlineKeyboardMarkup(keyboard)
@@ -1799,3 +1804,34 @@ async def send_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
         caption="💾 <b>To'liq Ma'lumotlar Bazasi (Backup)</b>\nFormat: JSON",
         parse_mode='HTML'
     )
+
+async def set_limit_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Limitni o'zgartirishni boshlash"""
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "🔢 <b>Yangi kunlik limitni kiriting:</b>\n\n"
+        "Faqat raqam yuboring (masalan: 5, 10, 20).\n"
+        "Bekor qilish uchun /cancel ni bosing.",
+        parse_mode='HTML'
+    )
+    return ADMIN_SET_LIMIT
+
+async def set_limit_save(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Limitni saqlash"""
+    limit_text = update.message.text.strip()
+    
+    if not limit_text.isdigit():
+        await update.message.reply_text("⚠️ Iltimos, faqat raqam yuboring!")
+        return ADMIN_SET_LIMIT
+    
+    limit = int(limit_text)
+    if limit < 1:
+        await update.message.reply_text("⚠️ Limit kamida 1 bo'lishi kerak!")
+        return ADMIN_SET_LIMIT
+
+    set_setting("rate_limit_per_day", str(limit))
+    
+    await update.message.reply_text(f"✅ Kunlik limit o'zgartirildi: {limit} ta")
+    await admin_panel(update, context)
+    return ConversationHandler.END

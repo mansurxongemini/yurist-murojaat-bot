@@ -109,17 +109,22 @@ def is_admin(user_id: int) -> bool:
 def rate_limit(func):
     """Decorator for rate limiting"""
     from functools import wraps
-    from database import check_rate_limit
+    from database import check_rate_limit, get_setting
     from config import RATE_LIMIT_PER_DAY
     
     @wraps(func)
     async def wrapper(update, context, *args, **kwargs):
         user = update.effective_user
-        allowed, remaining = check_rate_limit(user.id, RATE_LIMIT_PER_DAY)
+        
+        # Get dynamic limit
+        dynamic_limit = get_setting("rate_limit_per_day")
+        limit = int(dynamic_limit) if dynamic_limit else RATE_LIMIT_PER_DAY
+        
+        allowed, remaining = check_rate_limit(user.id, limit)
         
         if not allowed:
             await update.message.reply_text(
-                f"⚠️ Sizning kunlik limitingiz ({RATE_LIMIT_PER_DAY} ta murojaat) tugagan!\n"
+                f"⚠️ Sizning kunlik limitingiz ({limit} ta murojaat) tugagan!\n"
                 "Ertaga qayta urinib ko'ring.",
                 reply_markup=context.bot_data.get('main_keyboard')
             )

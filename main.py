@@ -209,6 +209,19 @@ def main():
     )
     application.add_handler(admin_ban_conv)
 
+    # ==================== ADMIN LIMIT CONVERSATION ====================
+    admin_limit_conv = ConversationHandler(
+        entry_points=[CallbackQueryHandler(set_limit_start, pattern="^set_limit_start$")],
+        states={
+            ADMIN_SET_LIMIT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_limit_save)]
+        },
+        fallbacks=[
+            CommandHandler("cancel", add_operator_cancel),
+            MessageHandler(filters.COMMAND, cancel_on_command)
+        ],
+    )
+    application.add_handler(admin_limit_conv)
+
     # ==================== STANDARD COMMANDS ====================
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("cancel", cancel))
