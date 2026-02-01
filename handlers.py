@@ -502,8 +502,8 @@ async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYP
     # Filter buttons
     filter_row = [
         InlineKeyboardButton(f"{'✅ ' if status_filter == 'all' else ''}Barchasi", callback_data="mycases_filter_all"),
-        InlineKeyboardButton(f"{'✅ ' if status_filter == 'open' else ''}Ochiq", callback_data="mycases_filter_open"),
-        InlineKeyboardButton(f"{'✅ ' if status_filter == 'closed' else ''}Yopilgan", callback_data="mycases_filter_closed"),
+        InlineKeyboardButton(f"{'✅ ' if status_filter == 'open' else ''}Javob berilgan", callback_data="mycases_filter_open"),
+        InlineKeyboardButton(f"{'✅ ' if status_filter == 'closed' else ''}Jarayonda", callback_data="mycases_filter_closed"),
     ]
 
     if not cases:
@@ -532,7 +532,7 @@ async def show_user_cases_page(update: Update, context: ContextTypes.DEFAULT_TYP
         text += f"{emoji} <b>{topic}</b>\n🆔: #{case['case_number']} | {date}\n📊 Holat: {status}\n\n"
         
         # Tugma qo'shish
-        row.append(InlineKeyboardButton(f"📝 #{case['case_number']} ga yozish", callback_data=f"reply_case_{case['case_number']}"))
+        row.append(InlineKeyboardButton(f"📝 #{case['case_number']}. Qayta murojaat", callback_data=f"reply_case_{case['case_number']}"))
         if len(row) == 2:
             keyboard.append(row)
             row = []
@@ -1262,9 +1262,8 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
     header = (
         f"🆔 <b>Murojaatingiz raqami:</b> #{case_data['case_number']}\n"
         f"📌 <b>Murojaatingiz qisqa mavzusi:</b> {case_data['topic'] or 'Mavzusiz'}\n"
-        f"⏱ <b>Javob berilish vaqti:</b> {duration_str}\n"
         f"👨‍💼 <b>Javob berdi:</b> {operator_name}\n\n"
-        f"<b>Sizning murojaatingizga quyidagicha javob beramiz:</b>\n\n"
+        f"<b>Assalomu Alaykum. Sizning murojaatingizga quyidagicha javob beramiz:</b>\n\n"
     )
     
     try:
@@ -1295,7 +1294,7 @@ async def handle_admin_reply(update: Update, context: ContextTypes.DEFAULT_TYPE)
         
         await context.bot.send_message(
             user_id, 
-            "Xizmat sifatini baholang:", 
+            "Bizning xizmatimizdan foydalanganingizdan xursandmiz. Xizmat sifatini yaxshilash uchun, 1 dan 5 gacha baholashingiz mumkin.", 
             reply_markup=rating_keyboard
         )
         
